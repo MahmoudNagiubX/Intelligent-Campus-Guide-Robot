@@ -168,6 +168,14 @@ class DeepgramStreamingClient:
         else:
             self._handle_partial(event)
 
+    def set_session_id(self, session_id: Optional[str]) -> None:
+        """Update the session ID attached to future transcript events."""
+        self._session_id = session_id
+
+    def reset_turn(self) -> None:
+        """Clear final-transcript deduplication between user turns."""
+        self._last_final_text = None
+
     # ── Transcript routing ─────────────────────────────────────────────────────
 
     def _handle_partial(self, event: TranscriptEvent) -> None:

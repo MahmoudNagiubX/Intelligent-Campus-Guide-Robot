@@ -127,7 +127,7 @@ class ResponseComposer:
 
         try:
             prompt = _load_campus_prompt()
-            raw = self._groq.complete_json(
+            raw = self._groq.complete_text(
                 system_prompt=prompt,
                 user_message=facts_json,
                 max_tokens=200,
@@ -235,7 +235,7 @@ class ResponseComposer:
         """
         try:
             prompt = _load_social_prompt()
-            raw = self._groq.complete_json(
+            raw = self._groq.complete_text(
                 system_prompt=prompt,
                 user_message=transcript,
                 max_tokens=150,

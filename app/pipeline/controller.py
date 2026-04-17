@@ -3,39 +3,20 @@ Navigator - Dual-Path Conversation Controller
 Phase 5, Step 5.1
 
 The central hub that receives final transcripts, classifies intent,
-dispatches to the correct path, and returns a ResponsePacket for TTS + actions.
-
-Architecture:
-    TranscriptEvent -> route() -> one of four paths -> ResponsePacket
-
-Paths:
-    campus_query        -> retrieve() -> compose_campus_answer()
-    navigation_request  -> retrieve() -> compose_navigation_answer()
-    social_chat         -> compose_social_answer()
-    unknown             -> compose_unknown_answer()   (no LLM call)
-
-If the router signals needs_clarification, the clarification path fires
-before any retrieval.
-
-All errors are caught at this layer — the controller never propagates
-exceptions to callers.
+dispatches to the correct path, and returns a ResponsePacket for TTS and
+actions.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Optional
 
 from app.llm.groq_client import GroqClient
 from app.pipeline.response_composer import ResponseComposer
 from app.retrieval.search import retrieve
 from app.routing.router import route
-from app.utils.contracts import (
-    IntentClass,
-    IntentResult,
-    ResponsePacket,
-    RetrievalStatus,
-    TranscriptEvent,
-)
+from app.utils.contracts import IntentClass, IntentResult, ResponsePacket, TranscriptEvent
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -43,34 +24,31 @@ logger = get_logger(__name__)
 
 class ConversationController:
     """
-    Orchestrates one full conversation turn from raw transcript to spoken response.
+    Orchestrates one full conversation turn from raw transcript to spoken
+    response.
 
     Args:
-        groq: Shared GroqClient instance (used by both router and response composer).
+        groq: Shared GroqClient instance used by the response composer.
     """
 
     def __init__(self, groq: Optional[GroqClient] = None) -> None:
-        self._groq     = groq or GroqClient()
+        self._groq = groq or GroqClient()
         self._composer = ResponseComposer(groq=self._groq)
+        self._trace_hook: Optional[Callable[..., None]] = None
 
-    # ── Main entry point ──────────────────────────────────────────────────────
+    def set_trace_hook(self, trace_hook: Optional[Callable[..., None]]) -> None:
+        """Register an optional trace callback used by the live runtime."""
+        self._trace_hook = trace_hook
 
     def handle_transcript(self, event: TranscriptEvent) -> ResponsePacket:
         """
         Process one final transcript event and return a ResponsePacket.
 
-        This is the ONLY public method callers should use.
-        Never raises — always returns a safe ResponsePacket.
-
-        Args:
-            event: A validated TranscriptEvent with is_final=True.
-
-        Returns:
-            ResponsePacket ready for TTS and (optionally) the action bridge.
+        Never raises - always returns a safe ResponsePacket.
         """
         session_id = event.session_id
-        language   = event.language or "en"
-        text       = (event.text or "").strip()
+        language = event.language or "en"
+        text = (event.text or "").strip()
 
         logger.info(
             "controller_turn_start",
@@ -80,19 +58,24 @@ class ConversationController:
         )
 
         if not text:
-            return self._composer.compose_unknown_answer(language=language, session_id=session_id)
+            packet = self._composer.compose_unknown_answer(language=language, session_id=session_id)
+            self._trace_response(packet)
+            return packet
 
         try:
-            return self._dispatch(text, language, session_id)
+            packet = self._dispatch(text, language, session_id)
+            self._trace_response(packet)
+            return packet
         except Exception as exc:
             logger.error("controller_unhandled_error", error=str(exc), session_id=session_id)
-            return ResponsePacket(
+            self._trace("error_occurred", session_id, source="controller", message=str(exc))
+            packet = ResponsePacket(
                 text="Something went wrong. Please try again.",
                 language=language,
                 session_id=session_id,
             )
-
-    # ── Dispatch ──────────────────────────────────────────────────────────────
+            self._trace_response(packet)
+            return packet
 
     def _dispatch(
         self,
@@ -111,8 +94,15 @@ class ConversationController:
             needs_clarification=intent_result.needs_clarification,
             session_id=session_id,
         )
+        self._trace(
+            "intent_decided",
+            session_id,
+            intent=intent_result.intent.value,
+            target=intent_result.target_text,
+            confidence=round(intent_result.confidence, 2),
+            needs_clarification=intent_result.needs_clarification,
+        )
 
-        # Router-signaled clarification — ask before retrieving
         if intent_result.needs_clarification and intent_result.clarification_question:
             return ResponsePacket(
                 text=intent_result.clarification_question,
@@ -129,8 +119,6 @@ class ConversationController:
                 return self._handle_social_chat(text, language, session_id)
             case _:
                 return self._composer.compose_unknown_answer(language=language, session_id=session_id)
-
-    # ── Campus path (§5.2) ────────────────────────────────────────────────────
 
     def _handle_campus_query(
         self,
@@ -151,6 +139,13 @@ class ConversationController:
             entity=retrieval.canonical_name,
             session_id=session_id,
         )
+        self._trace(
+            "retrieval_finished",
+            session_id,
+            path="campus",
+            status=retrieval.status.value,
+            entity=retrieval.canonical_name,
+        )
 
         return self._composer.compose_campus_answer(
             retrieval=retrieval,
@@ -158,8 +153,6 @@ class ConversationController:
             language=language,
             session_id=session_id,
         )
-
-    # ── Navigation path (§5.3) ────────────────────────────────────────────────
 
     def _handle_navigation_request(
         self,
@@ -181,6 +174,14 @@ class ConversationController:
             nav_code=retrieval.nav_code,
             session_id=session_id,
         )
+        self._trace(
+            "retrieval_finished",
+            session_id,
+            path="navigation",
+            status=retrieval.status.value,
+            entity=retrieval.canonical_name,
+            nav_code=retrieval.nav_code,
+        )
 
         return self._composer.compose_navigation_answer(
             retrieval=retrieval,
@@ -188,8 +189,6 @@ class ConversationController:
             language=language,
             session_id=session_id,
         )
-
-    # ── Social path (§5.4) ────────────────────────────────────────────────────
 
     def _handle_social_chat(
         self,
@@ -204,18 +203,34 @@ class ConversationController:
             session_id=session_id,
         )
 
-    # ── Internal classification ────────────────────────────────────────────────
-
     def _classify(self, text: str, session_id: Optional[str]) -> IntentResult:
         """Call the router and return an IntentResult. Never raises."""
         try:
             return route(text)
         except Exception as exc:
             logger.error("controller_router_error", error=str(exc), session_id=session_id)
-            from app.utils.contracts import IntentClass
+            self._trace("error_occurred", session_id, source="router", message=str(exc))
             return IntentResult(
                 intent=IntentClass.UNKNOWN,
                 language="en",
                 raw_query=text,
                 reason="router_exception",
             )
+
+    def _trace_response(self, packet: ResponsePacket) -> None:
+        self._trace(
+            "response_generated",
+            packet.session_id,
+            text=packet.text,
+            language=packet.language,
+            should_navigate=packet.should_navigate,
+        )
+
+    def _trace(self, event_name: str, session_id: Optional[str], **fields) -> None:
+        """Safely emit runtime trace events when a hook is configured."""
+        if self._trace_hook is None:
+            return
+        try:
+            self._trace_hook(event_name, session_id=session_id, **fields)
+        except Exception as exc:
+            logger.debug("controller_trace_hook_error", event=event_name, error=str(exc))

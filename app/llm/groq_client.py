@@ -1,24 +1,28 @@
 """
 Navigator - Groq LLM Client
 
-Wrapper around the Groq Python SDK.  All tunable parameters come from config;
-nothing is hardcoded here.
+Wrapper around the Groq Python SDK. All tunable parameters come from config.
 
-Provides two public methods:
-- complete_json()  — low-level: sends a prompt and returns the raw JSON string.
-- call_router()    — high-level: classifies intent and always returns IntentResult.
+Provides three public methods:
+- complete_json(): sends a prompt and returns a raw JSON string
+- complete_text(): sends a prompt and returns plain text
+- call_router(): classifies intent and always returns IntentResult
 
 Rules:
-- JSON mode is always enabled; the model must return a JSON object.
-- call_router() never raises — it returns UNKNOWN on every failure path.
-- Retries use exponential backoff.  Non-retriable errors stop immediately.
-- Never called directly from pipeline code — use the routing service (Step 2.4).
+- JSON mode is used only when the caller expects structured output
+- call_router() never raises
+- Retries use exponential backoff
+- Pipeline code should use higher-level services rather than calling the SDK
+  directly
 """
+
+from __future__ import annotations
 
 import json
 import time
+from typing import Optional
 
-from groq import Groq, APITimeoutError, APIConnectionError, RateLimitError
+from groq import APIConnectionError, APITimeoutError, Groq, RateLimitError
 from pydantic import ValidationError
 
 from app.config import get_settings
@@ -28,10 +32,6 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Safe fallback helper
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _unknown_result(
     raw_query: str | None = None,
@@ -46,24 +46,17 @@ def _unknown_result(
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GroqClient
-# ─────────────────────────────────────────────────────────────────────────────
-
 class GroqClient:
     """
     Wrapper around the Groq API client.
 
     Instantiate once at startup and reuse across all turns in the session.
-    All configuration (model, timeout, retries, backoff) comes from Settings.
     """
 
     def __init__(self) -> None:
         cfg = get_settings()
         if not cfg.has_groq_key:
-            raise RuntimeError(
-                "GROQ_API_KEY is not set — cannot initialize Groq client."
-            )
+            raise RuntimeError("GROQ_API_KEY is not set - cannot initialize Groq client.")
 
         self._model: str = cfg.groq_model
         self._timeout: float = cfg.groq_timeout
@@ -73,20 +66,13 @@ class GroqClient:
         self._client = Groq(api_key=cfg.groq_api_key, timeout=self._timeout)
         logger.info("groq_client_ready", model=self._model, timeout=self._timeout)
 
-    # ── Lifecycle ─────────────────────────────────────────────────────────────
-
     def close(self) -> None:
-        """
-        Explicitly close the underlying Groq/httpx client.
-        Prevents SDK destructor noise during interpreter shutdown.
-        """
+        """Close the underlying Groq/httpx client explicitly."""
         client = getattr(self, "_client", None)
         if client is None:
             return
         self._client = None
         client.close()
-
-    # ── Low-level API ─────────────────────────────────────────────────────────
 
     def complete_json(
         self,
@@ -94,68 +80,93 @@ class GroqClient:
         user_message: str,
         max_tokens: int = 256,
     ) -> str | None:
-        """
-        Send a chat completion request in JSON mode.
+        """Send a completion request in JSON mode."""
+        return self._complete_request(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=max_tokens,
+            temperature=0.0,
+            response_format={"type": "json_object"},
+            mode="json",
+        )
 
-        Retries up to _max_retries times with exponential backoff.
-        Non-retriable errors (unexpected exceptions) stop immediately.
+    def complete_text(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = 256,
+    ) -> str | None:
+        """Send a completion request in plain-text mode."""
+        return self._complete_request(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=max_tokens,
+            temperature=0.2,
+            response_format=None,
+            mode="text",
+        )
 
-        Args:
-            system_prompt: System instruction for the model.
-            user_message:  The user utterance or transcript text.
-            max_tokens:    Upper bound on response tokens.
-
-        Returns:
-            Raw JSON string from the model, or None on all-retry failure.
-        """
+    def _complete_request(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        temperature: float,
+        response_format: Optional[dict],
+        mode: str,
+    ) -> str | None:
+        """Shared completion logic for JSON and plain-text requests."""
         for attempt in range(1, self._max_retries + 1):
             try:
-                response = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=[
+                request: dict = {
+                    "model": self._model,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": user_message},
+                        {"role": "user", "content": user_message},
                     ],
-                    response_format={"type": "json_object"},
-                    max_tokens=max_tokens,
-                    temperature=0.0,  # deterministic classification
-                )
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+                if response_format is not None:
+                    request["response_format"] = response_format
+
+                response = self._client.chat.completions.create(**request)
                 content = response.choices[0].message.content
                 logger.debug(
                     "groq_response_received",
+                    mode=mode,
                     attempt=attempt,
                     tokens_used=response.usage.total_tokens if response.usage else 0,
                 )
                 return content
 
             except APITimeoutError:
-                logger.warning("groq_timeout", attempt=attempt, max=self._max_retries)
+                logger.warning("groq_timeout", mode=mode, attempt=attempt, max=self._max_retries)
 
             except RateLimitError:
-                logger.warning("groq_rate_limit", attempt=attempt)
-                time.sleep(2.0)  # fixed back-off for rate limits
+                logger.warning("groq_rate_limit", mode=mode, attempt=attempt)
+                time.sleep(2.0)
 
             except APIConnectionError as exc:
-                logger.error("groq_connection_error", error=str(exc), attempt=attempt)
+                logger.error("groq_connection_error", mode=mode, error=str(exc), attempt=attempt)
 
             except Exception as exc:
-                # Unexpected errors are not retried — stop immediately.
-                logger.error("groq_unexpected_error", error=str(exc), attempt=attempt)
+                logger.error("groq_unexpected_error", mode=mode, error=str(exc), attempt=attempt)
                 break
 
             if attempt < self._max_retries:
                 delay = self._retry_backoff * (2 ** (attempt - 1))
                 logger.debug(
                     "groq_retry_wait",
+                    mode=mode,
                     delay_sec=round(delay, 2),
                     next_attempt=attempt + 1,
                 )
                 time.sleep(delay)
 
-        logger.error("groq_all_retries_failed", max=self._max_retries)
+        logger.error("groq_all_retries_failed", mode=mode, max=self._max_retries)
         return None
-
-    # ── High-level router interface ───────────────────────────────────────────
 
     def call_router(
         self,
@@ -166,27 +177,14 @@ class GroqClient:
         Classify the intent of a user utterance.
 
         Calls complete_json(), then parses and validates the JSON response
-        against RouterRawOutput.  Always returns a typed IntentResult —
-        never raises.  Returns UNKNOWN on every failure path.
-
-        Args:
-            system_prompt: Router classification prompt (provided by routing service).
-            user_message:  Final transcript text from the STT module.
-
-        Returns:
-            IntentResult with a valid intent class.  Callers must not assume
-            the result is anything other than UNKNOWN without checking intent.
+        against RouterRawOutput. Returns UNKNOWN on every failure path.
         """
         raw_json = self.complete_json(system_prompt, user_message)
 
         if raw_json is None:
-            logger.error(
-                "groq_router_no_response",
-                transcript_preview=user_message[:80],
-            )
+            logger.error("groq_router_no_response", transcript_preview=user_message[:80])
             return _unknown_result(raw_query=user_message, reason="no_response")
 
-        # ── JSON parse ────────────────────────────────────────────────────────
         try:
             data = json.loads(raw_json)
         except json.JSONDecodeError as exc:
@@ -197,7 +195,6 @@ class GroqClient:
             )
             return _unknown_result(raw_query=user_message, reason="json_parse_error")
 
-        # ── Schema validation ─────────────────────────────────────────────────
         try:
             validated = RouterRawOutput.model_validate(data)
         except ValidationError as exc:

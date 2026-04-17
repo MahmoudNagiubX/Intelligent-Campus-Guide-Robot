@@ -35,6 +35,7 @@ from app.utils.contracts import (
 def _mock_groq(spoken_text: str = "Test response.") -> MagicMock:
     groq = MagicMock()
     groq.complete_json.return_value = spoken_text
+    groq.complete_text.return_value = spoken_text
     return groq
 
 
@@ -133,7 +134,7 @@ class TestResponseComposerCampusPath:
             _make_retrieval_not_found(), "quantum mechanics", "en", "s1"
         )
         assert "database" in result.text.lower() or "find" in result.text.lower()
-        groq.complete_json.assert_not_called()
+        groq.complete_text.assert_not_called()
 
     def test_ambiguous_returns_clarification_question(self):
         groq = _mock_groq()
@@ -154,7 +155,7 @@ class TestResponseComposerCampusPath:
 
     def test_llm_error_falls_back_to_facts(self):
         groq = MagicMock()
-        groq.complete_json.side_effect = RuntimeError("timeout")
+        groq.complete_text.side_effect = RuntimeError("timeout")
         composer = ResponseComposer(groq=groq)
         with patch("app.pipeline.response_composer._load_campus_prompt", return_value="p"):
             result = composer.compose_campus_answer(
@@ -230,11 +231,11 @@ class TestResponseComposerSocialPath:
             result = composer.compose_social_answer("how are you", "en", "s1")
         assert result.language == "en"
         assert isinstance(result.text, str)
-        groq.complete_json.assert_called_once()
+        groq.complete_text.assert_called_once()
 
     def test_social_llm_error_falls_back_gracefully(self):
         groq = MagicMock()
-        groq.complete_json.side_effect = RuntimeError("timeout")
+        groq.complete_text.side_effect = RuntimeError("timeout")
         composer = ResponseComposer(groq=groq)
         with patch("app.pipeline.response_composer._load_social_prompt", return_value="p"):
             result = composer.compose_social_answer("hello", "en", "s1")
@@ -243,7 +244,7 @@ class TestResponseComposerSocialPath:
 
     def test_social_arabic_fallback_on_error(self):
         groq = MagicMock()
-        groq.complete_json.side_effect = RuntimeError("x")
+        groq.complete_text.side_effect = RuntimeError("x")
         composer = ResponseComposer(groq=groq)
         with patch("app.pipeline.response_composer._load_social_prompt", return_value="p"):
             result = composer.compose_social_answer("ازيك", "ar-EG", "s1")
@@ -257,7 +258,7 @@ class TestResponseComposerUnknownPath:
         result = composer.compose_unknown_answer("en", "s1")
         assert isinstance(result.text, str)
         assert "campus" in result.text.lower()
-        groq.complete_json.assert_not_called()
+        groq.complete_text.assert_not_called()
 
     def test_unknown_arabic(self):
         groq = _mock_groq()

@@ -2,18 +2,18 @@
 Navigator - Wake Word Detector
 Phase 3, Step 3.2
 
-Wraps openWakeWord to provide always-on detection of the "hey navigator" phrase.
-Operates in a background thread during idle state.
+Wraps openWakeWord to provide always-on detection of the "hey navigator"
+phrase.
 
 Behavior:
 - Runs continuously while in idle mode
 - Fires an activation callback when the configured phrase is detected
 - Has a cooldown period to prevent double-triggers
-- Stops cleanly when the session starts (active conversation)
+- Can also process frames inline when the runtime owns the mic loop
 
 Mock mode for testing:
     detector = WakeWordDetector(mock=True)
-    detector.trigger()   # Manually fire the wake word callback
+    detector.trigger()
 """
 
 from __future__ import annotations
@@ -29,19 +29,16 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-# Minimum seconds between two wake word activations
 _COOLDOWN_SEC = 2.0
 
 
 class WakeWordDetector:
     """
     Always-on wake word listener.
-    Runs in a daemon thread and invokes on_activated() when triggered.
 
     Args:
-        on_activated: Callback called (with no arguments) when wake word fires.
-        mock:         In mock mode the detector does nothing autonomously —
-                      call trigger() to simulate detection in tests.
+        on_activated: Callback called when wake word fires.
+        mock: If True, no model is loaded and trigger() is used in tests.
     """
 
     def __init__(
@@ -50,15 +47,15 @@ class WakeWordDetector:
         mock: bool = False,
     ) -> None:
         cfg = get_settings()
-        self._wake_word: str       = cfg.wake_word              # "hey navigator"
-        self._threshold: float     = cfg.wake_word_threshold    # 0.5
-        self._mock                 = mock
-        self._on_activated         = on_activated or (lambda: None)
-        self._running              = False
-        self._active_session       = False  # set True while conversation is ongoing
-        self._last_trigger_time    = 0.0
+        self._wake_word: str = cfg.wake_word
+        self._threshold: float = cfg.wake_word_threshold
+        self._mock = mock
+        self._on_activated = on_activated or (lambda: None)
+        self._running = False
+        self._active_session = False
+        self._last_trigger_time = 0.0
         self._thread: Optional[threading.Thread] = None
-        self._oww_model            = None   # openWakeWord model (real mode)
+        self._oww_model = None
 
         logger.info(
             "wakeword_init",
@@ -67,22 +64,17 @@ class WakeWordDetector:
             mock=self._mock,
         )
 
-    # ── Public API ────────────────────────────────────────────────────────────
-
     def start(self, mic_frames_iter=None) -> None:
         """
-        Start the wake word detection loop.
+        Start the background wake-word loop.
 
-        Args:
-            mic_frames_iter: Iterator of raw PCM frames from MicCapture.
-                             Not required in mock mode.
+        The live Pipecat runtime usually feeds process_frame() directly instead.
         """
         if self._running:
             return
         self._running = True
 
         if self._mock:
-            # No thread needed — trigger() is called manually in tests
             logger.info("wakeword_mock_started")
             return
 
@@ -96,31 +88,46 @@ class WakeWordDetector:
         logger.info("wakeword_started")
 
     def stop(self) -> None:
-        """Stop the detection loop and release the model."""
+        """Stop detection and release the loaded model."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=3.0)
+            self._thread = None
         self._oww_model = None
         logger.info("wakeword_stopped")
 
     def set_session_active(self, active: bool) -> None:
-        """
-        Suppress wake word triggers while a conversation session is open.
-        Call with True when a session starts, False when it ends.
-        """
+        """Suppress activations while a conversation is already active."""
         self._active_session = active
 
     def trigger(self) -> None:
-        """
-        Manually fire the activation callback.
-        For use in tests and mock mode only.
-        """
+        """Manually fire the activation callback."""
         self._fire_activation()
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    def process_frame(self, frame: bytes) -> None:
+        """
+        Process one PCM frame inline.
+
+        This is used by the Phase 8 runtime so the mic stream can be shared
+        between wake-word detection and the rest of the live pipeline.
+        """
+        if self._mock:
+            return
+
+        if self._oww_model is None and not self._load_model():
+            return
+
+        try:
+            prediction = self._predict_frame(frame)
+            for model_name, score in prediction.items():
+                if score >= self._threshold:
+                    logger.debug("wakeword_score", model=model_name, score=round(score, 3))
+                    self._fire_activation()
+                    break
+        except Exception as exc:
+            logger.error("wakeword_predict_error", error=str(exc))
 
     def _fire_activation(self) -> None:
-        """Check cooldown and call the activation callback."""
         now = time.monotonic()
         if self._active_session:
             logger.debug("wakeword_suppressed_active_session")
@@ -128,6 +135,7 @@ class WakeWordDetector:
         if now - self._last_trigger_time < _COOLDOWN_SEC:
             logger.debug("wakeword_suppressed_cooldown")
             return
+
         self._last_trigger_time = now
         logger.info("wakeword_activated", phrase=self._wake_word)
         try:
@@ -136,14 +144,12 @@ class WakeWordDetector:
             logger.error("wakeword_callback_error", error=str(exc))
 
     def _load_model(self) -> bool:
-        """Load the openWakeWord model. Returns True if successful."""
+        """Load the openWakeWord model."""
         try:
             from openwakeword.model import Model  # type: ignore
-            # Load the "hey_navigator" or closest available model.
-            # openWakeWord ships pretrained models; "hey_mycroft" pattern used as base.
-            # The model name must match an available .tflite file.
+
             self._oww_model = Model(
-                wakeword_models=["hey_jarvis"],   # closest built-in to "hey navigator"
+                wakeword_models=["hey_jarvis"],
                 inference_framework="tflite",
             )
             logger.info("wakeword_model_loaded")
@@ -152,10 +158,18 @@ class WakeWordDetector:
             logger.error("wakeword_model_load_failed", error=str(exc))
             return False
 
-    def _detect_loop(self, mic_frames_iter) -> None:
-        """Main detection loop: feed mic frames through the OWW model."""
+    def _predict_frame(self, frame: bytes) -> dict:
+        """Run one frame through the wake-word model."""
         import numpy as np
 
+        if self._oww_model is None:
+            return {}
+
+        audio_data = np.frombuffer(frame, dtype=np.int16)
+        return self._oww_model.predict(audio_data)
+
+    def _detect_loop(self, mic_frames_iter) -> None:
+        """Main background detection loop."""
         if not self._load_model():
             logger.error("wakeword_loop_aborted_no_model")
             self._running = False
@@ -165,20 +179,6 @@ class WakeWordDetector:
         for frame in mic_frames_iter:
             if not self._running:
                 break
-
-            try:
-                # Convert bytes → int16 array
-                audio_data = np.frombuffer(frame, dtype=np.int16)
-                prediction = self._oww_model.predict(audio_data)
-
-                # prediction is a dict: {model_name: score}
-                for model_name, score in prediction.items():
-                    if score >= self._threshold:
-                        logger.debug("wakeword_score", model=model_name, score=round(score, 3))
-                        self._fire_activation()
-                        break
-
-            except Exception as exc:
-                logger.error("wakeword_predict_error", error=str(exc))
+            self.process_frame(frame)
 
         logger.info("wakeword_loop_end")

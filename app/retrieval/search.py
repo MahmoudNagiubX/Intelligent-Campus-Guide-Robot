@@ -292,7 +292,11 @@ def _hydrate_department(conn: sqlite3.Connection, entity_id: int) -> tuple[Spoke
         room=row["room"],
         description=row["description"],
     )
-    return facts, None, None
+    nav = conn.execute(
+        "SELECT nav_code FROM navigation_targets WHERE target_type='department' AND canonical_id=?;",
+        (entity_id,),
+    ).fetchone()
+    return facts, nav["nav_code"] if nav else None, None
 
 
 def _hydrate_facility(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
@@ -308,7 +312,11 @@ def _hydrate_facility(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenF
         room=row["room"],
         description=row["description"],
     )
-    return facts, None, None
+    nav = conn.execute(
+        "SELECT nav_code FROM navigation_targets WHERE target_type='facility' AND canonical_id=?;",
+        (entity_id,),
+    ).fetchone()
+    return facts, nav["nav_code"] if nav else None, None
 
 
 _HYDRATORS = {
