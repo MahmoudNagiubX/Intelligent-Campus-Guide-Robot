@@ -4,23 +4,30 @@ Main entrypoint. No business logic lives here.
 This file bootstraps the application only.
 """
 
+from app.utils.logging import setup_logging, get_logger
 from app.config import get_settings
 
 
 def main() -> None:
     """Application entry point."""
-    print("Navigator is starting up...")
+    # Logging must be the very first thing initialized.
+    setup_logging()
+    logger = get_logger(__name__)
 
     cfg = get_settings()
-    print(f"  Log level      : {cfg.log_level}")
-    print(f"  Sample rate    : {cfg.mic_sample_rate} Hz")
-    print(f"  Wake word      : '{cfg.wake_word}'")
-    print(f"  DB path        : {cfg.sqlite_db_path}")
-    print(f"  Default lang   : {cfg.default_language}")
-    print(f"  Deepgram key   : {'✅ set' if cfg.has_deepgram_key else '⚠️  not set'}")
-    print(f"  Groq key       : {'✅ set' if cfg.has_groq_key else '⚠️  not set'}")
 
-    print("\nNavigator config loaded OK ✅")
+    logger.info(
+        "navigator_starting",
+        log_level=cfg.log_level,
+        sample_rate=cfg.mic_sample_rate,
+        wake_word=cfg.wake_word,
+        db_path=cfg.sqlite_db_path,
+        default_language=cfg.default_language,
+        deepgram_key_set=cfg.has_deepgram_key,
+        groq_key_set=cfg.has_groq_key,
+    )
+
+    logger.info("navigator_boot_ok")
 
 
 if __name__ == "__main__":
