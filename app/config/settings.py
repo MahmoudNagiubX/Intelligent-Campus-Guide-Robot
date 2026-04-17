@@ -48,6 +48,24 @@ class Settings(BaseSettings):
     edge_tts_voice_en: str = Field(default="en-US-JennyNeural", description="English TTS voice")
     default_language: str = Field(default="en", description="Fallback language code when detection is uncertain")
 
+    # ── Groq LLM ──────────────────────────────────────────────────────────────
+    groq_model: str = Field(
+        default="llama-3.1-8b-instant",
+        description="Groq model ID used for router and generator calls",
+    )
+    groq_timeout: float = Field(
+        default=8.0, gt=0.0,
+        description="Groq API request timeout in seconds",
+    )
+    groq_max_retries: int = Field(
+        default=3, gt=0,
+        description="Maximum retry attempts for Groq API calls before giving up",
+    )
+    groq_retry_backoff: float = Field(
+        default=1.0, ge=0.0,
+        description="Base delay in seconds for exponential backoff between retries",
+    )
+
     # ── Router ────────────────────────────────────────────────────────────────
     router_confidence_threshold: float = Field(
         default=0.75, ge=0.0, le=1.0,
