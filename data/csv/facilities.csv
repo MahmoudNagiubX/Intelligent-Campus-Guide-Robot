@@ -1,0 +1,11 @@
+code,name,category,building,floor,room,description
+WIFI_MAIN,Main Campus Wi-Fi Zone,wifi,Library Building,1,,High-speed wireless internet coverage throughout the library
+WIFI_LAB,Lab Wi-Fi Zone,wifi,Building A,1,,Wireless internet in all computer labs
+PRINT_LIB,Library Printing Station,printing,Library Building,1,,Black and white and color printing available
+PRINT_ADMIN,Admin Printing Station,printing,Main Building,1,101,Printing and document services near administration
+ATM_MAIN,Campus ATM,atm,Student Center,1,,24-hour ATM machine near main cafeteria
+MEDICAL,Medical Center,health,Main Building,2,201,Student health and first aid services
+PARKING_B,Parking Lot B,parking,Parking Area B,,,Staff and visitor parking area
+STUDY_LIB,Library Study Rooms,study,Library Building,2,,Quiet individual and group study rooms - booking required
+CANTEEN_B,Building B Canteen,food,Building B,1,,Small cafe and snacks canteen
+IT_SUPPORT,IT Support Desk,support,Building A,1,110,Technical support for campus systems and accounts
