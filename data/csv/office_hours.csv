@@ -1,0 +1,14 @@
+staff_full_name,weekday,start_time,end_time,notes,source_version
+Dr. Ahmed Samy,Sunday,10:00,12:00,,v1
+Dr. Ahmed Samy,Tuesday,14:00,16:00,,v1
+Dr. Nour El-Din,Monday,09:00,11:00,,v1
+Dr. Nour El-Din,Wednesday,13:00,15:00,,v1
+Dr. Sara Ali,Sunday,11:00,13:00,By appointment preferred,v1
+Dr. Sara Ali,Thursday,10:00,12:00,,v1
+Dr. Mohamed Hassan,Tuesday,10:00,12:00,,v1
+Dr. Layla Ibrahim,Thursday,14:00,16:00,Research group only,v1
+Ms. Dina Mostafa,Sunday,08:30,14:30,,v1
+Ms. Dina Mostafa,Monday,08:30,14:30,,v1
+Ms. Dina Mostafa,Tuesday,08:30,14:30,,v1
+Ms. Dina Mostafa,Wednesday,08:30,14:30,,v1
+Ms. Dina Mostafa,Thursday,08:30,14:30,,v1

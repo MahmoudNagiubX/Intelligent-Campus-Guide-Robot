@@ -1,0 +1,9 @@
+full_name,title,department_code,office_location_code,contact_notes
+Dr. Mohamed Hassan,Professor and Department Head,CS_DEPT,CS_DEPT_OFF,Available by appointment
+Dr. Sara Ali,Associate Professor and Department Head,SE_DEPT,SE_DEPT_OFF,Office hours posted on door
+Dr. Khaled Nasser,Professor,EE_DEPT,,Contact via email
+Dr. Layla Ibrahim,Professor and Department Head,AI_DEPT,AI_DEPT_OFF,Research group meetings Thursdays
+Dr. Ahmed Samy,Assistant Professor,SE_DEPT,SE_DEPT_OFF,Available Sunday and Tuesday
+Dr. Nour El-Din,Lecturer,CS_DEPT,CS_DEPT_OFF,Available Monday and Wednesday
+Ms. Dina Mostafa,Administration Manager,ADMIN,ADMIN_OFF,Walk-in welcome during office hours
+Dr. Hana Farouk,Assistant Professor,AI_DEPT,AI_DEPT_OFF,Specializes in NLP and robotics

@@ -1,0 +1,26 @@
+canonical_type,canonical_id,alias_text
+location,1,robot room
+location,1,robotics room
+location,1,lab 214
+location,1,room 214
+location,1,the robot lab
+location,2,computer lab
+location,2,lab 101
+location,3,software lab
+location,3,lab 102
+location,5,main hall
+location,5,hall a
+location,7,library
+location,7,the library
+location,7,lib
+location,8,cafeteria
+location,8,food court
+location,8,canteen
+location,9,admin
+location,9,administration
+location,9,student affairs
+location,9,registration office
+location,13,mosque
+location,13,prayer area
+location,14,gym
+location,14,sports

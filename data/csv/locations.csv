@@ -1,0 +1,16 @@
+code,name,building,floor,room,description,department_code,map_node
+LAB_214,Robotics Lab,Building C,2,214,Main robotics and embedded systems lab,,c2_r214
+LAB_101,Computer Lab 101,Building A,1,101,General purpose computing lab,CS_DEPT,a1_r101
+LAB_102,Computer Lab 102,Building A,1,102,Programming and software lab,SE_DEPT,a1_r102
+LAB_305,AI Lab,Building A,3,305,Machine learning and AI research lab,AI_DEPT,a3_r305
+HALL_A,Lecture Hall A,Building A,1,105,Large lecture hall capacity 200,,a1_h105
+HALL_B,Lecture Hall B,Building B,1,110,Large lecture hall capacity 150,,b1_h110
+LIB_MAIN,Main Library,Library Building,1,,University main library and study areas,,lib_main
+CAFE_MAIN,Main Cafeteria,Student Center,1,,Main campus cafeteria and food court,,cafe_main
+ADMIN_OFF,Administration Office,Main Building,1,101,Student affairs and registration,ADMIN,main_r101
+SE_DEPT_OFF,Software Engineering Office,Building A,3,305,SE department office,SE_DEPT,a3_r305
+CS_DEPT_OFF,Computer Science Office,Building A,3,301,CS department office,CS_DEPT,a3_r301
+AI_DEPT_OFF,AI Department Office,Building A,4,401,AI department office,AI_DEPT,a4_r401
+MOSQUE,Campus Mosque,Mosque Building,1,,University mosque for prayers,,mosque_main
+GYM,Sports Hall,Sports Building,1,,Gymnasium and sports facilities,,sports_main
+PARKING_A,Parking Lot A,Parking Area A,,,Main student parking area,,park_a
