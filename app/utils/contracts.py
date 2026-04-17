@@ -181,6 +181,9 @@ class RetrievalResult:
     matched_alias: Optional[str] = None
     """The alias or field that produced this match, useful for debugging."""
 
+    matched_via: Optional[str] = None
+    """How the match was found: alias, fts_locations, fts_staff, etc."""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Response Packet
