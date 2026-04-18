@@ -241,3 +241,71 @@ class TestPlaybackManager:
 
         assert device_index == 5
         assert device_name == "Output 5"
+
+    def test_resolve_default_device_as_plain_int(self):
+        """sd.default.device is already an int (some Linux/Mac setups)."""
+        class FakeSoundDevice:
+            default = type("Default", (), {"device": 3})()
+
+            @staticmethod
+            def query_devices(index):
+                return {"name": f"Device {index}"}
+
+        pm = PlaybackManager(mock=True)
+        device_index, device_name = pm._resolve_output_device(FakeSoundDevice)
+
+        assert device_index == 3
+        assert device_name == "Device 3"
+
+    def test_resolve_default_device_as_input_output_pair_non_tuple(self):
+        """_InputOutputPair that does NOT subclass list/tuple (older sounddevice)."""
+        class _InputOutputPair:
+            def __init__(self, inp, out):
+                self._data = [inp, out]
+            def __getitem__(self, idx):
+                return self._data[idx]
+            def __repr__(self):
+                return f"_InputOutputPair({self._data})"
+
+        class FakeSoundDevice:
+            default = type("Default", (), {"device": _InputOutputPair(1, 6)})()
+
+            @staticmethod
+            def query_devices(index):
+                return {"name": f"Speaker {index}"}
+
+        pm = PlaybackManager(mock=True)
+        device_index, device_name = pm._resolve_output_device(FakeSoundDevice)
+
+        assert device_index == 6
+        assert device_name == "Speaker 6"
+
+    def test_resolve_negative_output_index_returns_none(self):
+        """Output index of -1 means no default device configured."""
+        class FakeSoundDevice:
+            default = type("Default", (), {"device": (0, -1)})()
+
+            @staticmethod
+            def query_devices(index):
+                return {"name": f"Device {index}"}
+
+        pm = PlaybackManager(mock=True)
+        device_index, device_name = pm._resolve_output_device(FakeSoundDevice)
+
+        assert device_index is None
+        assert device_name is None
+
+    def test_resolve_none_output_index_returns_none(self):
+        """Output side of the pair is None — no default output device."""
+        class FakeSoundDevice:
+            default = type("Default", (), {"device": (0, None)})()
+
+            @staticmethod
+            def query_devices(index):
+                return {"name": f"Device {index}"}
+
+        pm = PlaybackManager(mock=True)
+        device_index, device_name = pm._resolve_output_device(FakeSoundDevice)
+
+        assert device_index is None
+        assert device_name is None

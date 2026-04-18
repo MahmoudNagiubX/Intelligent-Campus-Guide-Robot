@@ -278,8 +278,8 @@ class PlaybackManager:
         try:
             device_index, device_name = self._resolve_output_device(sd)
             logger.info(
-                "playback_output_device",
-                speaker_device_index=device_index,
+                "playback_output_device_resolved",
+                output_device_index=device_index,
                 output_device_name=device_name,
                 explicit_device_selected=self._speaker_device_index is not None,
             )
@@ -297,20 +297,45 @@ class PlaybackManager:
             self._resolved_output_device_name = device_name
             return device_index, device_name
 
-        default_device = sounddevice_module.default.device
-        if isinstance(default_device, (list, tuple)):
-            output_index = default_device[1]
+        raw = sounddevice_module.default.device
+        # sounddevice.default.device can be:
+        #   - int: the output device index directly
+        #   - list/tuple: [input_idx, output_idx]
+        #   - _InputOutputPair: custom class that may NOT subclass list/tuple depending
+        #     on the sounddevice version installed — output index is always at position 1
+        if isinstance(raw, (list, tuple)):
+            raw_output = raw[1]
+        elif hasattr(raw, "__getitem__"):
+            try:
+                raw_output = raw[1]
+            except (IndexError, TypeError):
+                raw_output = raw
         else:
-            output_index = default_device
+            raw_output = raw
 
-        if output_index is None or int(output_index) < 0:
+        if raw_output is None:
             self._resolved_output_device_name = None
             return None, None
 
-        device_index = int(output_index)
-        device_name = self._query_device_name(sounddevice_module, device_index)
+        try:
+            output_index = int(raw_output)
+        except (TypeError, ValueError) as exc:
+            logger.error(
+                "playback_output_device_resolution_failed",
+                raw_device=repr(raw),
+                raw_output=repr(raw_output),
+                error=str(exc),
+            )
+            self._resolved_output_device_name = None
+            return None, None
+
+        if output_index < 0:
+            self._resolved_output_device_name = None
+            return None, None
+
+        device_name = self._query_device_name(sounddevice_module, output_index)
         self._resolved_output_device_name = device_name
-        return device_index, device_name
+        return output_index, device_name
 
     @staticmethod
     def _query_device_name(sounddevice_module: Any, device_index: int) -> Optional[str]:
