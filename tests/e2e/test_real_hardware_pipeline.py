@@ -37,7 +37,14 @@ async def test_real_hardware_pipeline_roundtrip(monkeypatch, tmp_path):
 
         while time.monotonic() < deadline:
             events = [event.name for event in runtime.tracer.events()]
-            if {"transcript_final_received", "intent_decided", "response_generated", "speaking_started", "session_ended"} <= set(events):
+            if {
+                "deepgram_connected",
+                "transcript_final_received",
+                "intent_decided",
+                "response_generated",
+                "speaking_started",
+                "session_ended",
+            } <= set(events):
                 break
             await asyncio.sleep(0.25)
         else:

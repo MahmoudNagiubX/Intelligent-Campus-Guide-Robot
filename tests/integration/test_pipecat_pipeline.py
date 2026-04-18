@@ -62,6 +62,7 @@ async def test_final_transcript_routes_through_campus_pipeline(monkeypatch, tmp_
         metrics = runtime.tracer.metrics_for(session_id)
 
         assert router_groq.complete_json.called
+        assert "deepgram_connected" in events
         assert "transcript_final_received" in events
         assert "intent_decided" in events
         assert "retrieval_finished" in events

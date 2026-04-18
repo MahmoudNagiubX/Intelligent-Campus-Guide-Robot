@@ -148,7 +148,9 @@ class SessionManager:
     def on_speech_start(self) -> None:
         """Called when VAD detects speech onset."""
         self._last_activity = time.monotonic()
-        self.transition(SessionState.LISTENING)
+        current = self.state
+        if current in (SessionState.WAKE_DETECTED, SessionState.INTERRUPTED):
+            self.transition(SessionState.LISTENING)
 
     def on_speech_end(self) -> None:
         """Called when VAD detects end of utterance — start processing."""

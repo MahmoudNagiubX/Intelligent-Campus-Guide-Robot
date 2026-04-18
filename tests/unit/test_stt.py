@@ -8,6 +8,8 @@ Run with:
     pytest tests/unit/test_stt.py -v
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.stt.deepgram_client import DeepgramStreamingClient
@@ -17,6 +19,30 @@ from app.utils.contracts import TranscriptEvent
 class TestDeepgramMockMode:
     def _make_client(self, **kwargs) -> DeepgramStreamingClient:
         return DeepgramStreamingClient(mock=True, **kwargs)
+
+    @staticmethod
+    def _results_message(
+        text: str,
+        *,
+        is_final: bool,
+        speech_final: bool = False,
+        from_finalize: bool = False,
+        confidence: float = 0.95,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            type="Results",
+            channel=SimpleNamespace(
+                alternatives=[
+                    SimpleNamespace(
+                        transcript=text,
+                        confidence=confidence,
+                    )
+                ]
+            ),
+            is_final=is_final,
+            speech_final=speech_final,
+            from_finalize=from_finalize,
+        )
 
     def test_connect_in_mock_mode(self):
         client = self._make_client()
@@ -28,6 +54,13 @@ class TestDeepgramMockMode:
         client.connect()
         client.disconnect()
         assert client._connected is False
+
+    def test_connect_in_mock_mode_fires_connected_callback(self):
+        connected = []
+        client = self._make_client()
+        client.set_callbacks(on_connected=lambda: connected.append(True))
+        client.connect()
+        assert connected == [True]
 
     def test_inject_final_fires_on_final_callback(self):
         finals = []
@@ -125,6 +158,79 @@ class TestDeepgramMockMode:
         client.inject_mock_transcript(arabic, is_final=True)
         # Arabic text should be preserved exactly (minus leading/trailing whitespace)
         assert finals[0].text == arabic.strip()
+
+    def test_final_segments_flush_only_when_speech_final_arrives(self):
+        finals = []
+        client = self._make_client(on_final=lambda e: finals.append(e))
+
+        client._handle_deepgram_message(
+            self._results_message(
+                "where is the robotics",
+                is_final=True,
+                speech_final=False,
+            )
+        )
+        assert finals == []
+
+        client._handle_deepgram_message(
+            self._results_message(
+                "lab",
+                is_final=True,
+                speech_final=True,
+            )
+        )
+
+        assert [event.text for event in finals] == ["where is the robotics lab"]
+
+    def test_utterance_end_flushes_buffered_final_segments(self):
+        finals = []
+        client = self._make_client(on_final=lambda e: finals.append(e))
+
+        client._handle_deepgram_message(
+            self._results_message(
+                "take me to lab 214",
+                is_final=True,
+                speech_final=False,
+            )
+        )
+        client._handle_deepgram_message(SimpleNamespace(type="UtteranceEnd"))
+
+        assert [event.text for event in finals] == ["take me to lab 214"]
+
+    def test_from_finalize_flushes_buffered_final_segments(self):
+        finals = []
+        client = self._make_client(on_final=lambda e: finals.append(e))
+
+        client._handle_deepgram_message(
+            self._results_message(
+                "where is dr ahmed office",
+                is_final=True,
+                from_finalize=True,
+            )
+        )
+
+        assert [event.text for event in finals] == ["where is dr ahmed office"]
+
+    def test_duplicate_final_segment_is_not_duplicated_in_flush(self):
+        finals = []
+        client = self._make_client(on_final=lambda e: finals.append(e))
+
+        client._handle_deepgram_message(
+            self._results_message(
+                "robotics lab",
+                is_final=True,
+                speech_final=False,
+            )
+        )
+        client._handle_deepgram_message(
+            self._results_message(
+                "robotics lab",
+                is_final=True,
+                speech_final=True,
+            )
+        )
+
+        assert [event.text for event in finals] == ["robotics lab"]
 
 
 class TestKeytermLoader:

@@ -204,8 +204,15 @@ class DeepgramAdapter(FrameProcessor):
         super().__init__(name="DeepgramAdapter")
         self._client = client
         self._tracer = tracer
-        self._client._on_partial = self._on_partial  # type: ignore[attr-defined]
-        self._client._on_final = self._on_final  # type: ignore[attr-defined]
+        self._client.set_callbacks(
+            on_partial=self._on_partial,
+            on_final=self._on_final,
+            on_connected=self._on_connected,
+            on_error=self._on_error,
+        )
+
+    def connect(self) -> None:
+        self._client.connect()
 
     def set_session_id(self, session_id: Optional[str]) -> None:
         self._client.set_session_id(session_id)
@@ -220,12 +227,16 @@ class DeepgramAdapter(FrameProcessor):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, StartFrame):
-            self._client.connect()
             await self.push_frame(frame, direction)
             return
 
         if isinstance(frame, (EndFrame, CancelFrame)):
             self._client.disconnect()
+            await self.push_frame(frame, direction)
+            return
+
+        if isinstance(frame, UserStoppedSpeakingFrame):
+            self._client.finalize_turn()
             await self.push_frame(frame, direction)
             return
 
@@ -246,6 +257,21 @@ class DeepgramAdapter(FrameProcessor):
             language=event.language,
         )
         self._schedule_push(TranscriptEventFrame(event=event))
+
+    def _on_connected(self) -> None:
+        self._tracer.record(
+            "deepgram_connected",
+            session_id=self._client.session_id,
+        )
+
+    def _on_error(self, reason: str, message: str) -> None:
+        self._tracer.record(
+            "error_occurred",
+            session_id=self._client.session_id,
+            source="deepgram",
+            reason=reason,
+            message=message,
+        )
 
     def _schedule_push(self, frame: Frame) -> None:
         try:
@@ -659,6 +685,7 @@ class NavigatorPipecatRuntime:
         self._deepgram_adapter.reset_turn()
         self._session_manager.start_timeout_timer()
         self._tracer.record("session_started", session_id=session_id)
+        self._deepgram_adapter.connect()
 
     def _on_speech_start(self) -> None:
         session_id = self._session_manager.session_id or self._last_session_id
@@ -673,6 +700,7 @@ class NavigatorPipecatRuntime:
             self._session_manager.on_speech_start()
 
         self._session_manager.activity_ping()
+        self._deepgram_adapter.connect()
         self._deepgram_adapter.reset_turn()
         self._queue_frame_threadsafe(UserStartedSpeakingFrame())
         self._tracer.record("speech_started", session_id=session_id)
@@ -712,6 +740,7 @@ class NavigatorPipecatRuntime:
         )
         self._session_manager.reset()
         self._wakeword.set_session_active(False)
+        self._deepgram_adapter.disconnect()
         self._deepgram_adapter.set_session_id(None)
         self._tracer.record("session_ended", session_id=session_id, reason="empty_audio")
 
@@ -719,6 +748,7 @@ class NavigatorPipecatRuntime:
         session_id = self._session_manager.session_id or self._last_session_id
         self._session_manager.on_playback_complete()
         self._wakeword.set_session_active(False)
+        self._deepgram_adapter.disconnect()
         self._deepgram_adapter.set_session_id(None)
         self._vad.reset()
         self._tracer.record("session_ended", session_id=session_id, reason="playback_complete")
@@ -726,6 +756,7 @@ class NavigatorPipecatRuntime:
     def _on_session_timeout(self) -> None:
         session_id = self._last_session_id
         self._wakeword.set_session_active(False)
+        self._deepgram_adapter.disconnect()
         self._deepgram_adapter.set_session_id(None)
         self._vad.reset()
         self._tracer.record("session_ended", session_id=session_id, reason="timeout")

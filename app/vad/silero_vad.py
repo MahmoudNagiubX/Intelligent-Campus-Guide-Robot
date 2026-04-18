@@ -163,7 +163,9 @@ class SileroVAD:
 
         try:
             import torch
-            audio_tensor = torch.frombuffer(frame, dtype=torch.int16).float() / 32768.0
+            # Clone after frombuffer so PyTorch doesn't warn about the underlying
+            # bytes object being non-writable on the live microphone path.
+            audio_tensor = torch.frombuffer(frame, dtype=torch.int16).clone().float() / 32768.0
             prob = self._model(audio_tensor.unsqueeze(0), self._sample_rate).item()
             return prob >= self._threshold
         except Exception as exc:
