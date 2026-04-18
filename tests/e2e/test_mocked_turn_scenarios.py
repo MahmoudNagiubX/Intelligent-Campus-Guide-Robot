@@ -23,31 +23,31 @@ from tests.fixtures.runtime_fixtures import (
 
 SCENARIOS = [
     (
-        "Hey Navigator, where is the Robotics Lab?",
+        "Hey Jarvis, where is the Robotics Lab?",
         IntentClass.CAMPUS_QUERY,
         "Robotics Lab",
         False,
     ),
     (
-        "Hey Navigator, take me to the Software Engineering Department.",
+        "Hey Jarvis, take me to the Software Engineering Department.",
         IntentClass.NAVIGATION_REQUEST,
         "Software Engineering Department",
         True,
     ),
     (
-        "Hey Navigator, how are you?",
+        "Hey Jarvis, how are you?",
         IntentClass.SOCIAL_CHAT,
         None,
         False,
     ),
     (
-        "Hey Navigator, where is Dr Ahmed's office?",
+        "Hey Jarvis, where is Dr Ahmed's office?",
         IntentClass.CAMPUS_QUERY,
         "Dr Ahmed",
         False,
     ),
     (
-        "Hey Navigator, take me to Lab 214.",
+        "Hey Jarvis, take me to Lab 214.",
         IntentClass.NAVIGATION_REQUEST,
         "Lab 214",
         True,
@@ -159,7 +159,7 @@ async def test_mocked_end_to_end_user_interruption_while_speaking(monkeypatch, t
 
     await runtime.start()
     try:
-        await simulate_user_turn(runtime, "Hey Navigator, how are you?")
+        await simulate_user_turn(runtime, "Hey Jarvis, how are you?")
         assert await runtime.wait_for_state(SessionState.SPEAKING, timeout=2.0)
 
         runtime.vad.set_mock_speech(True)

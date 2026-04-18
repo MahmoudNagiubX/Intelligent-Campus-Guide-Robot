@@ -32,7 +32,7 @@ async def test_real_hardware_pipeline_roundtrip(monkeypatch, tmp_path):
 
     await runtime.start()
     try:
-        print("Say: 'Hey Navigator, where is the Robotics Lab?' within 60 seconds.")
+        print("Say: 'Hey Jarvis, where is the Robotics Lab?' within 60 seconds.")
         deadline = time.monotonic() + 60.0
 
         while time.monotonic() < deadline:
