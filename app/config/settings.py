@@ -33,7 +33,11 @@ class Settings(BaseSettings):
     mic_device_index: int | None = Field(default=None, description="PyAudio device index. None = system default")
 
     # ── Wake Word ─────────────────────────────────────────────────────────────
-    wake_word: str = Field(default="hey navigator", description="Wake phrase (English only for MVP)")
+    wake_word: str = Field(default="hey jarvis", description="Wake phrase used for live wake-word activation")
+    wake_word_model: str = Field(
+        default="",
+        description="openWakeWord model ID or .onnx/.tflite path. Blank derives from WAKE_WORD.",
+    )
     wake_word_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="Activation confidence threshold")
 
     # ── Session ───────────────────────────────────────────────────────────────

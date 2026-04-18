@@ -15,6 +15,7 @@ import time
 import pytest
 
 from app.audio.mic_input import MicCapture
+from app.config.settings import get_settings
 from app.audio.session_manager import SessionManager
 from app.utils.contracts import SessionState
 from app.vad.silero_vad import SileroVAD
@@ -124,6 +125,44 @@ class TestWakeWordDetectorMock:
         detector = WakeWordDetector(mock=True)
         detector.start()
         detector.stop()
+
+
+class TestWakeWordDetectorConfig:
+    def test_model_reference_defaults_from_phrase(self, monkeypatch):
+        monkeypatch.setenv("WAKE_WORD", "hey jarvis")
+        monkeypatch.delenv("WAKE_WORD_MODEL", raising=False)
+        get_settings.cache_clear()
+        try:
+            detector = WakeWordDetector(mock=True)
+            assert detector._wake_word == "hey jarvis"
+            assert detector._wake_word_model_ref == "hey_jarvis"
+        finally:
+            get_settings.cache_clear()
+
+    def test_explicit_model_path_overrides_phrase(self, monkeypatch):
+        monkeypatch.setenv("WAKE_WORD", "hey robot")
+        monkeypatch.setenv("WAKE_WORD_MODEL", "./data/wakewords/robot.onnx")
+        get_settings.cache_clear()
+        try:
+            detector = WakeWordDetector(mock=True)
+            assert detector._wake_word_model_ref == "./data/wakewords/robot.onnx"
+            assert detector._inference_framework == "onnx"
+        finally:
+            get_settings.cache_clear()
+
+    def test_invalid_builtin_model_name_has_actionable_error(self):
+        with pytest.raises(ValueError) as excinfo:
+            WakeWordDetector._validate_builtin_model_name(
+                "hey_robot",
+                {"hey_jarvis", "hey_mycroft", "hey_rhasspy"},
+                "hey robot",
+            )
+
+        message = str(excinfo.value)
+        assert "hey_robot" in message
+        assert "hey robot" in message
+        assert "WAKE_WORD_MODEL" in message
+        assert "hey_jarvis" in message
 
 
 # ─────────────────────────────────────────────────────────────────────────────

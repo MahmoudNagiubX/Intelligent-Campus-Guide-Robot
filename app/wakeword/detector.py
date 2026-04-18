@@ -2,7 +2,7 @@
 Navigator - Wake Word Detector
 Phase 3, Step 3.2
 
-Wraps openWakeWord to provide always-on detection of the "hey navigator"
+Wraps openWakeWord to provide always-on detection of the configured wake
 phrase.
 
 Behavior:
@@ -21,6 +21,9 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
+import re
+import sys
 from typing import Optional
 
 from app.config import get_settings
@@ -48,6 +51,8 @@ class WakeWordDetector:
     ) -> None:
         cfg = get_settings()
         self._wake_word: str = cfg.wake_word
+        self._wake_word_model_ref: str = self._resolve_model_reference(cfg.wake_word_model, self._wake_word)
+        self._inference_framework: str = self._resolve_inference_framework(self._wake_word_model_ref)
         self._threshold: float = cfg.wake_word_threshold
         self._mock = mock
         self._on_activated = on_activated or (lambda: None)
@@ -60,6 +65,8 @@ class WakeWordDetector:
         logger.info(
             "wakeword_init",
             phrase=self._wake_word,
+            model=self._wake_word_model_ref,
+            framework=self._inference_framework,
             threshold=self._threshold,
             mock=self._mock,
         )
@@ -146,16 +153,43 @@ class WakeWordDetector:
     def _load_model(self) -> bool:
         """Load the openWakeWord model."""
         try:
+            import openwakeword
             from openwakeword.model import Model  # type: ignore
 
+            if not self._is_model_path(self._wake_word_model_ref):
+                self._validate_builtin_model_name(
+                    self._wake_word_model_ref,
+                    set(openwakeword.MODELS.keys()),
+                    self._wake_word,
+                )
+                try:
+                    openwakeword.utils.download_models([self._wake_word_model_ref])
+                except Exception as exc:
+                    logger.debug(
+                        "wakeword_model_download_skipped",
+                        model=self._wake_word_model_ref,
+                        error=str(exc),
+                    )
+
             self._oww_model = Model(
-                wakeword_models=["hey_jarvis"],
-                inference_framework="tflite",
+                wakeword_models=[self._wake_word_model_ref],
+                inference_framework=self._inference_framework,
             )
-            logger.info("wakeword_model_loaded")
+            logger.info(
+                "wakeword_model_loaded",
+                phrase=self._wake_word,
+                model=self._wake_word_model_ref,
+                framework=self._inference_framework,
+            )
             return True
         except Exception as exc:
-            logger.error("wakeword_model_load_failed", error=str(exc))
+            logger.error(
+                "wakeword_model_load_failed",
+                phrase=self._wake_word,
+                model=self._wake_word_model_ref,
+                framework=self._inference_framework,
+                error=str(exc),
+            )
             return False
 
     def _predict_frame(self, frame: bytes) -> dict:
@@ -182,3 +216,44 @@ class WakeWordDetector:
             self.process_frame(frame)
 
         logger.info("wakeword_loop_end")
+
+    @staticmethod
+    def _resolve_model_reference(configured_model: str, wake_word: str) -> str:
+        model_ref = configured_model.strip()
+        if model_ref:
+            return model_ref
+        normalized = re.sub(r"[^a-z0-9]+", "_", wake_word.strip().lower())
+        return normalized.strip("_")
+
+    @staticmethod
+    def _is_model_path(model_ref: str) -> bool:
+        suffix = Path(model_ref).suffix.lower()
+        return suffix in {".onnx", ".tflite"}
+
+    @classmethod
+    def _resolve_inference_framework(cls, model_ref: str) -> str:
+        suffix = Path(model_ref).suffix.lower()
+        if suffix == ".onnx":
+            return "onnx"
+        if suffix == ".tflite":
+            return "tflite"
+        return "tflite" if sys.platform.startswith("linux") else "onnx"
+
+    @classmethod
+    def _validate_builtin_model_name(
+        cls,
+        model_ref: str,
+        available_models: set[str],
+        wake_word: str,
+    ) -> None:
+        if cls._is_model_path(model_ref):
+            return
+        if model_ref in available_models:
+            return
+
+        supported = ", ".join(sorted(available_models))
+        raise ValueError(
+            f"No built-in openWakeWord model named '{model_ref}' for wake phrase '{wake_word}'. "
+            f"Supported built-in models: {supported}. "
+            "For custom phrases, set WAKE_WORD_MODEL to a local .onnx or .tflite file."
+        )
