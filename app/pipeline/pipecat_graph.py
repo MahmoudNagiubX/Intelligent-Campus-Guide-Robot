@@ -44,6 +44,20 @@ from app.vad.silero_vad import SileroVAD
 from app.wakeword.detector import WakeWordDetector
 
 logger = get_logger(__name__)
+_INFO_TRACE_EVENTS = {
+    "wake_word_detected",
+    "session_started",
+    "speech_started",
+    "speech_ended",
+    "deepgram_connected",
+    "transcript_final_received",
+    "intent_decided",
+    "retrieval_finished",
+    "response_generated",
+    "speaking_started",
+    "speaking_interrupted",
+    "session_ended",
+}
 
 
 class _FallbackGroqClient:
@@ -112,8 +126,10 @@ class NavigatorRuntimeTracer:
 
         if name == "error_occurred":
             logger.error("runtime_trace", trace_event=name, session_id=session_id, **data)
-        else:
+        elif name in _INFO_TRACE_EVENTS:
             logger.info("runtime_trace", trace_event=name, session_id=session_id, **data)
+        else:
+            logger.debug("runtime_trace", trace_event=name, session_id=session_id, **data)
 
         return event
 

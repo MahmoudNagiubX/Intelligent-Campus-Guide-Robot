@@ -218,18 +218,35 @@ def _rank_candidates(candidates: list[_Candidate]) -> list[_Candidate]:
     return sorted(seen.values(), key=lambda c: c.score, reverse=True)
 
 
+def _candidate_names(candidates: list[_Candidate], limit: int = 3) -> list[str]:
+    """Return the top canonical names for logging and clarification hints."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate.canonical_name in seen:
+            continue
+        seen.add(candidate.canonical_name)
+        names.append(candidate.canonical_name)
+        if len(names) >= limit:
+            break
+    return names
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4 — Entity hydration
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _hydrate_location(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
+def _hydrate_location(
+    conn: sqlite3.Connection,
+    entity_id: int,
+) -> tuple[SpokenFacts, str | None, str | None, str | None]:
     """Fetch spoken facts and nav info for a location."""
     row = conn.execute(
         "SELECT building, floor, room, description, map_node FROM locations WHERE id=?;",
         (entity_id,),
     ).fetchone()
     if not row:
-        return SpokenFacts(), None, None
+        return SpokenFacts(), None, None, None
 
     facts = SpokenFacts(
         building=row["building"],
@@ -239,14 +256,19 @@ def _hydrate_location(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenF
     )
 
     nav = conn.execute(
-        "SELECT nav_code FROM navigation_targets WHERE target_type='location' AND canonical_id=?;",
+        """SELECT nav_code, safety_notes
+           FROM navigation_targets
+           WHERE target_type='location' AND canonical_id=?;""",
         (entity_id,),
     ).fetchone()
 
-    return facts, nav["nav_code"] if nav else None, row["map_node"]
+    return facts, nav["nav_code"] if nav else None, row["map_node"], nav["safety_notes"] if nav else None
 
 
-def _hydrate_staff(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
+def _hydrate_staff(
+    conn: sqlite3.Connection,
+    entity_id: int,
+) -> tuple[SpokenFacts, str | None, str | None, str | None]:
     """Fetch spoken facts for a staff member including office location and hours."""
     row = conn.execute(
         """SELECT s.title, s.contact_notes,
@@ -257,7 +279,7 @@ def _hydrate_staff(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFact
         (entity_id,),
     ).fetchone()
     if not row:
-        return SpokenFacts(), None, None
+        return SpokenFacts(), None, None, None
 
     # Aggregate office hours
     hours_rows = conn.execute(
@@ -276,16 +298,19 @@ def _hydrate_staff(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFact
         office_hours=hours_text,
         contact_notes=row["contact_notes"],
     )
-    return facts, None, None
+    return facts, None, None, None
 
 
-def _hydrate_department(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
+def _hydrate_department(
+    conn: sqlite3.Connection,
+    entity_id: int,
+) -> tuple[SpokenFacts, str | None, str | None, str | None]:
     row = conn.execute(
         "SELECT building, floor, room, description FROM departments WHERE id=?;",
         (entity_id,),
     ).fetchone()
     if not row:
-        return SpokenFacts(), None, None
+        return SpokenFacts(), None, None, None
     facts = SpokenFacts(
         building=row["building"],
         floor=row["floor"],
@@ -293,19 +318,24 @@ def _hydrate_department(conn: sqlite3.Connection, entity_id: int) -> tuple[Spoke
         description=row["description"],
     )
     nav = conn.execute(
-        "SELECT nav_code FROM navigation_targets WHERE target_type='department' AND canonical_id=?;",
+        """SELECT nav_code, safety_notes
+           FROM navigation_targets
+           WHERE target_type='department' AND canonical_id=?;""",
         (entity_id,),
     ).fetchone()
-    return facts, nav["nav_code"] if nav else None, None
+    return facts, nav["nav_code"] if nav else None, None, nav["safety_notes"] if nav else None
 
 
-def _hydrate_facility(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
+def _hydrate_facility(
+    conn: sqlite3.Connection,
+    entity_id: int,
+) -> tuple[SpokenFacts, str | None, str | None, str | None]:
     row = conn.execute(
         "SELECT building, floor, room, description FROM facilities WHERE id=?;",
         (entity_id,),
     ).fetchone()
     if not row:
-        return SpokenFacts(), None, None
+        return SpokenFacts(), None, None, None
     facts = SpokenFacts(
         building=row["building"],
         floor=row["floor"],
@@ -313,10 +343,12 @@ def _hydrate_facility(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenF
         description=row["description"],
     )
     nav = conn.execute(
-        "SELECT nav_code FROM navigation_targets WHERE target_type='facility' AND canonical_id=?;",
+        """SELECT nav_code, safety_notes
+           FROM navigation_targets
+           WHERE target_type='facility' AND canonical_id=?;""",
         (entity_id,),
     ).fetchone()
-    return facts, nav["nav_code"] if nav else None, None
+    return facts, nav["nav_code"] if nav else None, None, nav["safety_notes"] if nav else None
 
 
 _HYDRATORS = {
@@ -344,6 +376,8 @@ def retrieve(query: str) -> RetrievalResult:
     """
     conn = get_db()
     normalized = normalize_query(query)
+    if not normalized:
+        return RetrievalResult(status=RetrievalStatus.NOT_FOUND, confidence=0.0, normalized_query=normalized)
 
     logger.debug("retrieval_start", query=query, normalized=normalized)
 
@@ -357,12 +391,20 @@ def retrieve(query: str) -> RetrievalResult:
 
     # Phase 3: rank
     ranked = _rank_candidates(candidates)
+    ranked_names = _candidate_names(ranked)
 
     if not ranked:
         logger.info("retrieval_not_found", query=query)
-        return RetrievalResult(status=RetrievalStatus.NOT_FOUND, confidence=0.0)
+        return RetrievalResult(
+            status=RetrievalStatus.NOT_FOUND,
+            confidence=0.0,
+            normalized_query=normalized,
+        )
 
     top = ranked[0]
+    second = ranked[1] if len(ranked) >= 2 else None
+    second_score = second.score if second else 0.0
+    score_gap = top.score - second_score if second else top.score
 
     # Phase 4: ambiguity check
     # Alias matches (score=1.0) are always definitive — skip ambiguity check.
@@ -370,30 +412,44 @@ def retrieve(query: str) -> RetrievalResult:
     if top.matched_via == "alias":
         pass  # alias wins unconditionally
     elif len(ranked) >= 2:
-        second = ranked[1]
-        score_gap = top.score - second.score
         same_type = top.entity_type == second.entity_type
         both_strong = top.score >= _CONFIDENCE_THRESHOLD and second.score >= _CONFIDENCE_THRESHOLD
         if same_type and both_strong and score_gap < 0.15:
-            candidate_names = [c.canonical_name for c in ranked[:3]]
-            logger.info("retrieval_ambiguous", query=query, candidates=candidate_names)
+            logger.info("retrieval_ambiguous", query=query, candidates=ranked_names, score_gap=round(score_gap, 3))
             return RetrievalResult(
                 status=RetrievalStatus.AMBIGUOUS,
-                candidates=candidate_names,
+                candidates=ranked_names,
                 confidence=top.score,
+                second_best_score=second_score,
+                score_margin=score_gap,
+                normalized_query=normalized,
             )
 
     # Phase 5: confidence gate
     if top.score < _CONFIDENCE_THRESHOLD:
-        logger.info("retrieval_low_confidence", query=query, score=top.score, top=top.canonical_name)
-        return RetrievalResult(status=RetrievalStatus.NOT_FOUND, confidence=top.score)
+        logger.info(
+            "retrieval_low_confidence",
+            query=query,
+            score=top.score,
+            top=top.canonical_name,
+            second_score=round(second_score, 3),
+            score_gap=round(score_gap, 3),
+        )
+        return RetrievalResult(
+            status=RetrievalStatus.NOT_FOUND,
+            confidence=top.score,
+            candidates=ranked_names,
+            second_best_score=second_score,
+            score_margin=score_gap,
+            normalized_query=normalized,
+        )
 
     # Phase 6: hydrate the winner
     hydrator = _HYDRATORS.get(top.entity_type)
     if not hydrator:
         return RetrievalResult(status=RetrievalStatus.NOT_FOUND)
 
-    spoken_facts, nav_code, map_node = hydrator(conn, top.entity_id)
+    spoken_facts, nav_code, map_node, nav_safety_notes = hydrator(conn, top.entity_id)
 
     logger.info(
         "retrieval_ok",
@@ -402,6 +458,8 @@ def retrieve(query: str) -> RetrievalResult:
         canonical_name=top.canonical_name,
         score=round(top.score, 3),
         matched_via=top.matched_via,
+        second_score=round(second_score, 3),
+        score_gap=round(score_gap, 3),
     )
 
     return RetrievalResult(
@@ -413,5 +471,10 @@ def retrieve(query: str) -> RetrievalResult:
         nav_code=nav_code,
         map_node=map_node,
         confidence=top.score,
+        second_best_score=second_score,
+        score_margin=score_gap,
+        candidates=ranked_names,
         matched_via=top.matched_via,
+        normalized_query=normalized,
+        nav_safety_notes=nav_safety_notes,
     )

@@ -30,6 +30,7 @@ def test_csv_sync_into_sqlite(monkeypatch, tmp_path):
     assert results["departments"]["upserted"] > 0
     assert counts["locations"] >= 10
     assert counts["staff"] >= 1
+    assert counts["navigation_targets"] > 0
 
 
 @pytest.mark.asyncio
@@ -82,16 +83,6 @@ async def test_final_transcript_routes_through_campus_pipeline(monkeypatch, tmp_
 async def test_navigation_request_emits_action_payload(monkeypatch, tmp_path):
     configure_test_settings(monkeypatch, tmp_path)
     bootstrap_and_sync()
-
-    conn = get_db()
-    robotics_lab = conn.execute(
-        "SELECT id FROM locations WHERE code='LAB_214';"
-    ).fetchone()
-    conn.execute(
-        "INSERT INTO navigation_targets (target_type, canonical_id, nav_code) VALUES (?, ?, ?);",
-        ("location", robotics_lab["id"], "NAV_LAB_214"),
-    )
-    conn.commit()
 
     router_groq = make_router_mock(
         IntentClass.NAVIGATION_REQUEST,

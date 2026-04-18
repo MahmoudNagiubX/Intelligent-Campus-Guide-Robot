@@ -123,11 +123,10 @@ class TestPlaybackManager:
     def test_stop_during_playback_sets_stopped(self):
         stopped_event = threading.Event()
         pm = PlaybackManager(
-            mock=False,  # use real loop — but we stop it before it finishes
+            mock=True,
             on_complete=lambda: None,
         )
         # Patch _mock_playback to sleep, then stop from outside
-        pm._mock = True
 
         def delayed_stop():
             time.sleep(0.01)
@@ -205,3 +204,40 @@ class TestPlaybackManager:
         pm = PlaybackManager(mock=True, on_barge_in=bad_callback)
         pm._state = PlaybackState.PLAYING
         pm.notify_speech_detected()  # must not raise
+
+    def test_play_test_tone_starts_mock_playback(self):
+        pm = PlaybackManager(mock=True)
+        pm.play_test_tone()
+        time.sleep(0.2)
+        assert pm.state in (PlaybackState.PLAYING, PlaybackState.DONE)
+
+    def test_resolve_explicit_output_device(self):
+        class FakeSoundDevice:
+            default = type("Default", (), {"device": (2, 4)})()
+
+            @staticmethod
+            def query_devices(index):
+                return {"name": f"Device {index}"}
+
+        pm = PlaybackManager(mock=True)
+        pm._speaker_device_index = 7
+
+        device_index, device_name = pm._resolve_output_device(FakeSoundDevice)
+
+        assert device_index == 7
+        assert device_name == "Device 7"
+
+    def test_resolve_default_output_device(self):
+        class FakeSoundDevice:
+            default = type("Default", (), {"device": (2, 5)})()
+
+            @staticmethod
+            def query_devices(index):
+                return {"name": f"Output {index}"}
+
+        pm = PlaybackManager(mock=True)
+
+        device_index, device_name = pm._resolve_output_device(FakeSoundDevice)
+
+        assert device_index == 5
+        assert device_name == "Output 5"

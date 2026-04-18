@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        env_ignore_empty=True,
         extra="ignore",
     )
 
@@ -31,6 +32,10 @@ class Settings(BaseSettings):
     mic_frame_size: int = Field(default=512, description="Audio frame size in samples")
     mic_channels: int = Field(default=1, description="Mono audio channel count")
     mic_device_index: int | None = Field(default=None, description="PyAudio device index. None = system default")
+    speaker_device_index: int | None = Field(
+        default=None,
+        description="Playback output device index for sounddevice. None = system default output",
+    )
 
     # ── Wake Word ─────────────────────────────────────────────────────────────
     wake_word: str = Field(default="hey jarvis", description="Wake phrase used for live wake-word activation")

@@ -266,6 +266,50 @@ class ResponseComposer:
         logger.info("composer_unknown_fallback", language=language)
         return ResponsePacket(text=text, language=language, session_id=session_id)
 
+    def compose_quality_clarification(
+        self,
+        *,
+        language: str = "en",
+        session_id: Optional[str] = None,
+        suggestion: Optional[str] = None,
+        alternatives: Optional[list[str]] = None,
+        ask_location: bool = False,
+    ) -> ResponsePacket:
+        """Return a short clarification when transcript quality or evidence is weak."""
+        alts = [candidate for candidate in (alternatives or []) if candidate][:2]
+
+        if language == "ar-EG":
+            if len(alts) >= 2:
+                text = f"مش متأكد إني سمعتك صح. تقصد {alts[0]} ولا {alts[1]}؟"
+            elif suggestion and ask_location:
+                text = f"هل تقصد موقع {suggestion}؟"
+            elif suggestion:
+                text = f"هل تقصد {suggestion}؟"
+            elif ask_location:
+                text = "مش متأكد إني سمعت المكان صح. تقصد أي موقع في الجامعة؟"
+            else:
+                text = "مش متأكد إني سمعتك صح. ممكن تعيد سؤالك باختصار؟"
+        else:
+            if len(alts) >= 2:
+                text = f"I'm not fully sure I heard that correctly. Do you mean the {alts[0]} or {alts[1]}?"
+            elif suggestion and ask_location:
+                text = f"Are you asking for the {suggestion} location?"
+            elif suggestion:
+                text = f"Did you mean the {suggestion}?"
+            elif ask_location:
+                text = "I'm not fully sure I heard the location correctly. Which campus location do you mean?"
+            else:
+                text = "I'm not fully sure I heard that correctly. Could you say it again a bit more clearly?"
+
+        logger.info(
+            "composer_quality_clarification",
+            language=language,
+            suggestion=suggestion,
+            alternatives=alts,
+            ask_location=ask_location,
+        )
+        return ResponsePacket(text=text, language=language, session_id=session_id)
+
     # ── Clarification ─────────────────────────────────────────────────────────
 
     def _compose_clarification(
@@ -308,6 +352,7 @@ class ResponseComposer:
             facts["office_hours"]  = sf.office_hours
             facts["contact_notes"] = sf.contact_notes
         facts["nav_code"] = retrieval.nav_code
+        facts["nav_safety_notes"] = retrieval.nav_safety_notes
         return facts
 
     @staticmethod

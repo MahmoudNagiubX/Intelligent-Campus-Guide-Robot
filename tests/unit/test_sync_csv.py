@@ -1,6 +1,6 @@
 """
 Navigator - Phase 1 Step 1.6: CSV Sync Tests
-Tests for the CSV ingestion engine covering all six tables, validation,
+Tests for the CSV ingestion engine covering all runtime CSV tables, validation,
 normalization, FK resolution, idempotency, and error handling.
 
 Run with:
@@ -24,6 +24,7 @@ from app.storage.sync_csv import (
     _sync_office_hours,
     _sync_facilities,
     _sync_aliases,
+    _sync_navigation_targets,
     sync_all_csvs,
 )
 
@@ -100,6 +101,16 @@ CREATE TABLE IF NOT EXISTS aliases (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_aliases_normalized ON aliases(normalized_alias);
+
+CREATE TABLE IF NOT EXISTS navigation_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type TEXT NOT NULL,
+    canonical_id INTEGER NOT NULL,
+    nav_code TEXT NOT NULL UNIQUE,
+    safety_notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS sync_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -419,6 +430,60 @@ class TestAliasSync:
         row = db.execute("SELECT * FROM aliases WHERE normalized_alias='robot room';").fetchone()
         assert row is not None
         assert row["alias_text"] == "Robot Room"
+
+
+class TestNavigationTargetSync:
+    def _seed_targets(self, db) -> None:
+        db.execute("INSERT INTO locations (id, code, name) VALUES (1, 'LAB_214', 'Robotics Lab');")
+        db.execute("INSERT INTO departments (id, code, name) VALUES (1, 'CS_DEPT', 'Computer Science Department');")
+        db.execute("INSERT INTO facilities (id, code, name) VALUES (1, 'MEDICAL', 'Medical Center');")
+        db.commit()
+
+    def test_inserts_navigation_target(self, db):
+        self._seed_targets(db)
+        rows = [{"target_type": "location", "canonical_id": "1", "nav_code": "NAV_LAB_214"}]
+        upserted, skipped, errored = _sync_navigation_targets(db, rows, "test")
+        db.commit()
+
+        assert upserted == 1
+        assert skipped == 0
+        assert errored == 0
+        row = db.execute("SELECT * FROM navigation_targets WHERE nav_code='NAV_LAB_214';").fetchone()
+        assert row is not None
+        assert row["target_type"] == "location"
+
+    def test_updates_existing_navigation_target(self, db):
+        self._seed_targets(db)
+        _sync_navigation_targets(
+            db,
+            [{"target_type": "facility", "canonical_id": "1", "nav_code": "NAV_MEDICAL", "safety_notes": "old"}],
+            "test",
+        )
+        db.commit()
+
+        _sync_navigation_targets(
+            db,
+            [{"target_type": "facility", "canonical_id": "1", "nav_code": "NAV_MEDICAL", "safety_notes": "new"}],
+            "test",
+        )
+        db.commit()
+
+        row = db.execute("SELECT safety_notes FROM navigation_targets WHERE nav_code='NAV_MEDICAL';").fetchone()
+        assert row["safety_notes"] == "new"
+
+    def test_skips_unknown_target_type(self, db):
+        rows = [{"target_type": "staff", "canonical_id": "1", "nav_code": "NAV_BAD"}]
+        upserted, skipped, errored = _sync_navigation_targets(db, rows, "test")
+        assert upserted == 0
+        assert skipped == 1
+        assert errored == 0
+
+    def test_skips_missing_canonical_record(self, db):
+        rows = [{"target_type": "location", "canonical_id": "99", "nav_code": "NAV_MISSING"}]
+        upserted, skipped, errored = _sync_navigation_targets(db, rows, "test")
+        assert upserted == 0
+        assert skipped == 1
+        assert errored == 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -28,20 +28,22 @@ from __future__ import annotations
 import io
 import threading
 import time
+import wave
 from collections.abc import Callable
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
+from app.config import get_settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class PlaybackState(str, Enum):
-    IDLE    = "idle"
+    IDLE = "idle"
     PLAYING = "playing"
     STOPPED = "stopped"
-    DONE    = "done"
+    DONE = "done"
 
 
 class PlaybackManager:
@@ -61,18 +63,29 @@ class PlaybackManager:
         on_barge_in: Optional[Callable[[], None]] = None,
         mock: bool = False,
     ) -> None:
+        cfg = get_settings()
+
         self._on_complete = on_complete or (lambda: None)
         self._on_barge_in = on_barge_in or (lambda: None)
-        self._mock        = mock
+        self._mock = mock
+        self._speaker_device_index = cfg.speaker_device_index
 
-        self._state         = PlaybackState.IDLE
-        self._lock          = threading.Lock()
-        self._stop_event    = threading.Event()
+        self._state = PlaybackState.IDLE
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._active_stream: Optional[Any] = None
+        self._resolved_output_device_name: Optional[str] = None
 
-        logger.info("playback_init", mock=self._mock)
+        if not self._mock:
+            self._log_output_device()
 
-    # ── Public API ────────────────────────────────────────────────────────────
+        logger.info(
+            "playback_init",
+            mock=self._mock,
+            speaker_device_index=self._speaker_device_index,
+            output_device_name=self._resolved_output_device_name,
+        )
 
     @property
     def state(self) -> PlaybackState:
@@ -95,7 +108,7 @@ class PlaybackManager:
             logger.warning("playback_empty_audio_skipped")
             return
 
-        self.stop()   # cancel any ongoing playback
+        self.stop()
 
         self._stop_event.clear()
         with self._lock:
@@ -108,25 +121,32 @@ class PlaybackManager:
             name="tts-playback",
         )
         self._thread.start()
-        logger.info("playback_started", bytes=len(audio_bytes))
 
     def stop(self) -> None:
         """
         Stop playback immediately.
         Can be called as barge-in OR as a regular stop.
         """
+        stream = None
         with self._lock:
             if self._state != PlaybackState.PLAYING:
                 return
             self._state = PlaybackState.STOPPED
+            stream = self._active_stream
 
         self._stop_event.set()
-        if self._thread:
-            self._thread.join(timeout=1.0)
+        if stream is not None:
+            try:
+                stream.abort()
+            except Exception as exc:
+                logger.warning("playback_abort_failed", error=str(exc))
+
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.5)
         logger.info("playback_stopped")
 
     def cancel(self) -> None:
-        """Alias for stop() — explicit cancel intent."""
+        """Alias for stop() - explicit cancel intent."""
         self.stop()
 
     def notify_speech_detected(self) -> None:
@@ -142,7 +162,9 @@ class PlaybackManager:
             except Exception as exc:
                 logger.error("playback_barge_in_callback_error", error=str(exc))
 
-    # ── Playback loop ─────────────────────────────────────────────────────────
+    def play_test_tone(self, duration_ms: int = 300, frequency_hz: float = 440.0) -> None:
+        """Play a tiny audible tone through the configured output device."""
+        self.play(self._build_test_tone_wav(duration_ms=duration_ms, frequency_hz=frequency_hz))
 
     def _playback_loop(self, audio_bytes: bytes) -> None:
         """Run audio playback in the background thread."""
@@ -153,7 +175,6 @@ class PlaybackManager:
 
         with self._lock:
             if self._state == PlaybackState.PLAYING:
-                # Completed naturally
                 self._state = PlaybackState.DONE
                 logger.info("playback_done_naturally")
                 try:
@@ -162,31 +183,60 @@ class PlaybackManager:
                     logger.error("playback_complete_callback_error", error=str(exc))
 
     def _mock_playback(self) -> None:
-        """Simulate playback in mock mode — completes after 100 ms."""
+        """Simulate playback in mock mode - completes after 100 ms."""
+        logger.info("playback_started", mock=True)
         time.sleep(0.1)
         if self._stop_event.is_set():
             with self._lock:
                 self._state = PlaybackState.STOPPED
 
     def _real_playback(self, audio_bytes: bytes) -> None:
-        """Play audio using sounddevice and soundfile, streaming chunk by chunk."""
+        """Play audio using sounddevice OutputStream for more reliable Windows playback."""
         try:
-            import sounddevice as sd   # type: ignore
-            import soundfile as sf     # type: ignore
-        except ImportError:
-            logger.error("playback_sounddevice_not_installed")
+            import sounddevice as sd  # type: ignore
+            import soundfile as sf  # type: ignore
+        except ImportError as exc:
+            logger.error("playback_backend_missing", error=str(exc))
             with self._lock:
                 self._state = PlaybackState.STOPPED
             return
 
+        stream = None
         try:
             buf = io.BytesIO(audio_bytes)
-            data, samplerate = sf.read(buf, dtype="float32")
+            data, samplerate = sf.read(buf, dtype="float32", always_2d=True)
+            if data.size == 0:
+                logger.error("playback_no_samples_decoded")
+                with self._lock:
+                    self._state = PlaybackState.STOPPED
+                return
 
-            chunk_size = 1024
-            start = 0
+            device_index, device_name = self._resolve_output_device(sd)
+            channels = int(data.shape[1])
+            chunk_size = min(max(1024, samplerate // 10), max(len(data), 1024))
 
-            while start < len(data):
+            stream = sd.OutputStream(
+                samplerate=samplerate,
+                channels=channels,
+                dtype="float32",
+                device=device_index,
+                blocksize=chunk_size,
+            )
+            stream.start()
+            with self._lock:
+                self._active_stream = stream
+
+            logger.info(
+                "playback_started",
+                bytes=len(audio_bytes),
+                samplerate=samplerate,
+                channels=channels,
+                device_index=device_index,
+                output_device_name=device_name,
+                mock=False,
+            )
+
+            for start in range(0, len(data), chunk_size):
                 if self._stop_event.is_set():
                     logger.debug("playback_interrupted_during_stream")
                     with self._lock:
@@ -194,11 +244,95 @@ class PlaybackManager:
                     return
 
                 end = min(start + chunk_size, len(data))
-                chunk = data[start:end]
-                sd.play(chunk, samplerate=samplerate, blocking=True)
-                start = end
+                stream.write(data[start:end])
 
         except Exception as exc:
-            logger.error("playback_error", error=str(exc))
+            logger.error(
+                "playback_device_open_failed",
+                error=str(exc),
+                speaker_device_index=self._speaker_device_index,
+                output_device_name=self._resolved_output_device_name,
+            )
             with self._lock:
                 self._state = PlaybackState.STOPPED
+        finally:
+            with self._lock:
+                self._active_stream = None
+            if stream is not None:
+                try:
+                    stream.stop()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+    def _log_output_device(self) -> None:
+        try:
+            import sounddevice as sd  # type: ignore
+        except ImportError:
+            logger.warning("playback_device_probe_skipped", reason="sounddevice_not_installed")
+            return
+
+        try:
+            device_index, device_name = self._resolve_output_device(sd)
+            logger.info(
+                "playback_output_device",
+                speaker_device_index=device_index,
+                output_device_name=device_name,
+                explicit_device_selected=self._speaker_device_index is not None,
+            )
+        except Exception as exc:
+            logger.error(
+                "playback_output_device_probe_failed",
+                error=str(exc),
+                speaker_device_index=self._speaker_device_index,
+            )
+
+    def _resolve_output_device(self, sounddevice_module: Any) -> tuple[Optional[int], Optional[str]]:
+        if self._speaker_device_index is not None:
+            device_index = int(self._speaker_device_index)
+            device_name = self._query_device_name(sounddevice_module, device_index)
+            self._resolved_output_device_name = device_name
+            return device_index, device_name
+
+        default_device = sounddevice_module.default.device
+        if isinstance(default_device, (list, tuple)):
+            output_index = default_device[1]
+        else:
+            output_index = default_device
+
+        if output_index is None or int(output_index) < 0:
+            self._resolved_output_device_name = None
+            return None, None
+
+        device_index = int(output_index)
+        device_name = self._query_device_name(sounddevice_module, device_index)
+        self._resolved_output_device_name = device_name
+        return device_index, device_name
+
+    @staticmethod
+    def _query_device_name(sounddevice_module: Any, device_index: int) -> Optional[str]:
+        info = sounddevice_module.query_devices(device_index)
+        if isinstance(info, dict):
+            return str(info.get("name") or "").strip() or None
+        return None
+
+    @staticmethod
+    def _build_test_tone_wav(duration_ms: int = 300, frequency_hz: float = 440.0) -> bytes:
+        import numpy as np  # type: ignore
+
+        sample_rate = 22050
+        duration_sec = max(duration_ms, 50) / 1000.0
+        timeline = np.linspace(0.0, duration_sec, int(sample_rate * duration_sec), endpoint=False)
+        waveform = 0.2 * np.sin(2.0 * np.pi * frequency_hz * timeline)
+        pcm16 = (waveform * 32767).astype(np.int16)
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm16.tobytes())
+        return buf.getvalue()

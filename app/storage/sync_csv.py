@@ -88,6 +88,12 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
     "office_hours": ["staff_full_name", "weekday", "start_time", "end_time"],
     "facilities":   ["code", "name"],
     "aliases":      ["canonical_type", "canonical_id", "alias_text"],
+    "navigation_targets": ["target_type", "canonical_id", "nav_code"],
+}
+_NAV_TARGET_TABLES = {
+    "location": "locations",
+    "department": "departments",
+    "facility": "facilities",
 }
 
 
@@ -341,6 +347,73 @@ def _sync_aliases(conn: sqlite3.Connection, rows: list[dict], source: str) -> tu
     return upserted, skipped, errored
 
 
+def _sync_navigation_targets(
+    conn: sqlite3.Connection,
+    rows: list[dict],
+    source: str,
+) -> tuple[int, int, int]:
+    upserted = skipped = errored = 0
+    for i, row in enumerate(rows, start=2):
+        if not _validate_row(row, REQUIRED_COLUMNS["navigation_targets"], i, source):
+            skipped += 1
+            continue
+
+        try:
+            target_type = normalize_for_search(row["target_type"])
+            if target_type not in _NAV_TARGET_TABLES:
+                logger.warning("csv_invalid_target_type", source=source, line=i, target_type=target_type)
+                skipped += 1
+                continue
+
+            canonical_id = int(row["canonical_id"])
+            target_exists = conn.execute(
+                f"SELECT id FROM {_NAV_TARGET_TABLES[target_type]} WHERE id=?;",
+                (canonical_id,),
+            ).fetchone()
+            if not target_exists:
+                logger.warning(
+                    "csv_navigation_target_missing_canonical",
+                    source=source,
+                    line=i,
+                    target_type=target_type,
+                    canonical_id=canonical_id,
+                )
+                skipped += 1
+                continue
+
+            nav_code = normalize(row["nav_code"])
+            safety_notes = str_or_none(row.get("safety_notes"))
+            existing = conn.execute(
+                "SELECT id FROM navigation_targets WHERE target_type=? AND canonical_id=?;",
+                (target_type, canonical_id),
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    """UPDATE navigation_targets
+                       SET nav_code=?, safety_notes=?, updated_at=datetime('now')
+                       WHERE id=?;""",
+                    (nav_code, safety_notes, existing["id"]),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO navigation_targets (target_type, canonical_id, nav_code, safety_notes, updated_at)
+                       VALUES (?,?,?,?,datetime('now'))
+                       ON CONFLICT(nav_code) DO UPDATE SET
+                           target_type=excluded.target_type,
+                           canonical_id=excluded.canonical_id,
+                           safety_notes=excluded.safety_notes,
+                           updated_at=excluded.updated_at;""",
+                    (target_type, canonical_id, nav_code, safety_notes),
+                )
+            upserted += 1
+        except (sqlite3.Error, ValueError) as exc:
+            logger.error("csv_row_error", source=source, line=i, error=str(exc))
+            errored += 1
+
+    return upserted, skipped, errored
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Dispatcher
 # ─────────────────────────────────────────────────────────────────────────────
@@ -352,10 +425,19 @@ _SYNC_HANDLERS = {
     "office_hours": _sync_office_hours,
     "facilities":   _sync_facilities,
     "aliases":      _sync_aliases,
+    "navigation_targets": _sync_navigation_targets,
 }
 
 # Order matters: departments before locations, locations before staff
-_SYNC_ORDER = ["departments", "locations", "staff", "office_hours", "facilities", "aliases"]
+_SYNC_ORDER = [
+    "departments",
+    "locations",
+    "staff",
+    "office_hours",
+    "facilities",
+    "aliases",
+    "navigation_targets",
+]
 
 
 def sync_all_csvs() -> dict[str, dict]:

@@ -11,6 +11,7 @@ Run with:
 from types import SimpleNamespace
 
 import pytest
+from deepgram import AsyncDeepgramClient
 
 from app.stt.deepgram_client import DeepgramStreamingClient
 from app.utils.contracts import TranscriptEvent
@@ -150,6 +151,46 @@ class TestDeepgramMockMode:
         client = self._make_client(keyterms=keyterms)
         assert client._keyterms == keyterms
 
+    def test_connect_options_use_minimal_valid_handshake_query(self):
+        client = self._make_client()
+
+        assert client._build_connect_options() == {
+            "model": "nova-3",
+            "language": "en",
+            "encoding": "linear16",
+            "sample_rate": 16000,
+            "channels": 1,
+            "interim_results": True,
+            "punctuate": True,
+            "smart_format": True,
+        }
+
+    def test_nova3_keyterm_options_use_supported_keyterm_param(self):
+        client = self._make_client(
+            keyterms=["Robotics Lab", "robotics   lab", "Computer Science", "", "Dr Ahmed"]
+        )
+
+        assert client._build_nova3_keyterm_options() == {
+            "keyterm": ["Robotics Lab", "Computer Science", "Dr Ahmed"]
+        }
+
+    def test_connect_options_reintroduce_nova3_keyterms_after_minimal_baseline(self):
+        client = self._make_client(keyterms=["Robotics Lab", "Computer Science"])
+
+        assert client._build_connect_options()["keyterm"] == ["Robotics Lab", "Computer Science"]
+
+    def test_websocket_request_serializes_boolean_query_values_lowercase(self):
+        client = self._make_client()
+        dg_client = AsyncDeepgramClient(api_key="test-key")
+
+        ws_url, headers = client._build_websocket_request(dg_client, client._build_connect_options())
+
+        assert "interim_results=true" in ws_url
+        assert "punctuate=true" in ws_url
+        assert "smart_format=true" in ws_url
+        assert "interim_results=True" not in ws_url
+        assert headers["Authorization"] == "Token test-key"
+
     def test_arabic_transcript_not_modified(self):
         finals = []
         client = self._make_client(on_final=lambda e: finals.append(e), language="ar-EG")
@@ -251,11 +292,17 @@ class TestKeytermLoader:
             CREATE TABLE staff (id INTEGER PRIMARY KEY, full_name TEXT, is_active INTEGER DEFAULT 1);
             CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT, is_active INTEGER DEFAULT 1);
             CREATE TABLE facilities (id INTEGER PRIMARY KEY, name TEXT, is_active INTEGER DEFAULT 1);
-            CREATE TABLE aliases (id INTEGER PRIMARY KEY, alias_text TEXT);
+            CREATE TABLE aliases (
+                id INTEGER PRIMARY KEY,
+                canonical_type TEXT,
+                canonical_id INTEGER,
+                alias_text TEXT
+            );
             INSERT INTO locations VALUES (1, 'Robotics Lab', 'LAB_214', 1);
             INSERT INTO staff VALUES (1, 'Dr. Ahmed Samy', 1);
             INSERT INTO departments VALUES (1, 'Computer Science Department', 1);
-            INSERT INTO aliases VALUES (1, 'robot room');
+            INSERT INTO facilities VALUES (1, 'Medical Center', 1);
+            INSERT INTO aliases VALUES (1, 'location', 1, 'robot room');
         """)
         conn.commit()
 
@@ -266,4 +313,5 @@ class TestKeytermLoader:
         assert "Robotics Lab" in terms
         assert "Dr. Ahmed Samy" in terms
         assert "Computer Science Department" in terms
+        assert "Medical Center" in terms
         assert "robot room" in terms

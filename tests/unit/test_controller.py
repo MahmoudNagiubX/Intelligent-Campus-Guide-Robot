@@ -43,12 +43,13 @@ def _make_event(
     text: str,
     language: str = "en",
     session_id: str = "sess-001",
+    confidence: float = 0.95,
 ) -> TranscriptEvent:
     return TranscriptEvent(
         text=text,
         is_final=True,
         language=language,
-        confidence=0.95,
+        confidence=confidence,
         session_id=session_id,
         source="deepgram_mock",
     )
@@ -335,6 +336,40 @@ class TestConversationController:
             with self._mock_retrieve(_make_retrieval_not_found()):
                 result = ctrl.handle_transcript(_make_event("quantum mechanics"))
         assert "database" in result.text.lower() or "find" in result.text.lower()
+
+    def test_malformed_location_query_returns_clarification_before_router(self):
+        ctrl = self._make_controller()
+        with patch("app.pipeline.controller.route") as route_mock:
+            result = ctrl.handle_transcript(_make_event("where is"))
+        route_mock.assert_not_called()
+        assert "location" in result.text.lower() or "campus" in result.text.lower()
+
+    def test_weak_retrieval_with_suggestion_returns_clarification(self):
+        ctrl = self._make_controller()
+        weak_result = RetrievalResult(
+            status=RetrievalStatus.NOT_FOUND,
+            confidence=0.58,
+            candidates=["Robotics Lab", "AI Lab"],
+            score_margin=0.05,
+        )
+        with self._mock_route(IntentClass.CAMPUS_QUERY, target="robotic slab"):
+            with self._mock_retrieve(weak_result):
+                result = ctrl.handle_transcript(_make_event("where is robotic slab"))
+        assert "Robotics Lab" in result.text
+
+    def test_transcript_normalization_uses_stronger_retrieval_match(self):
+        ctrl = self._make_controller("The Robotics Lab is in Building C.")
+        weak_result = RetrievalResult(status=RetrievalStatus.NOT_FOUND, confidence=0.0, candidates=["Robotics Lab"])
+        corrected_result = _make_retrieval_ok()
+        with self._mock_route(IntentClass.CAMPUS_QUERY, target="robotic slab"):
+            with patch(
+                "app.pipeline.controller.retrieve",
+                side_effect=[weak_result, corrected_result, corrected_result],
+            ) as retrieve_mock:
+                with patch("app.pipeline.response_composer._load_campus_prompt", return_value="p"):
+                    result = ctrl.handle_transcript(_make_event("where is robotic slab", confidence=0.61))
+        assert "Robotics Lab" in result.text
+        assert retrieve_mock.call_count == 3
 
     # Navigation path
     def test_navigation_with_valid_target_emits_command(self):

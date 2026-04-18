@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+import urllib.parse
 from collections import deque
 from collections.abc import Callable
 from typing import Any, Optional
@@ -45,10 +46,21 @@ _DEEPGRAM_MODEL = "nova-3"
 _DEEPGRAM_ENCODING = "linear16"
 _DEEPGRAM_SAMPLE_RATE = 16000
 _DEEPGRAM_CHANNELS = 1
-_DEEPGRAM_ENDPOINTING_MS = 300
-_DEEPGRAM_UTTERANCE_END_MS = 1000
 _DEEPGRAM_KEEPALIVE_SEC = 4.0
 _PENDING_AUDIO_FRAMES_LIMIT = 1024
+_DEEPGRAM_MAX_KEYTERMS = 100
+_ENTITY_KEYTERM_LIMIT = 36
+_ALIAS_KEYTERM_LIMIT = 40
+_STAFF_KEYTERM_LIMIT = 20
+_ALIAS_BLACKLIST = {
+    "lab",
+    "room",
+    "office",
+    "department",
+    "building",
+    "floor",
+    "location",
+}
 
 
 class DeepgramStreamingClient:
@@ -100,6 +112,7 @@ class DeepgramStreamingClient:
         self._connected = False
         self._connect_ready = threading.Event()
         self._connect_error: Optional[str] = None
+        self._connect_options: dict[str, Any] = {}
         self._stop_requested = threading.Event()
         self._last_audio_activity = time.monotonic()
 
@@ -107,6 +120,7 @@ class DeepgramStreamingClient:
             "deepgram_client_init",
             language=self._language,
             keyterms_count=len(self._keyterms),
+            keyterm_prompting_active=bool(self._keyterms),
             mock=self._mock,
         )
 
@@ -165,12 +179,23 @@ class DeepgramStreamingClient:
         self._connected = False
         self._clear_pending_audio()
         self._clear_pending_segments()
+        self._connect_options = self._build_connect_options()
+        keyterm_prompting_active = "keyterm" in self._connect_options
+
+        logger.info(
+            "deepgram_connect_options",
+            options=self._connect_options,
+            available_keyterms_count=len(self._keyterms),
+            active_keyterms_count=len(self._connect_options.get("keyterm", [])),
+            keyterm_prompting_active=keyterm_prompting_active,
+        )
 
         logger.info(
             "deepgram_connecting",
             language=self._language,
             model=_DEEPGRAM_MODEL,
             keyterms_count=len(self._keyterms),
+            keyterm_prompting_active=keyterm_prompting_active,
         )
 
         self._thread = threading.Thread(
@@ -295,6 +320,53 @@ class DeepgramStreamingClient:
         self._last_final_text = None
         self._clear_pending_segments()
 
+    def _build_connect_options(self) -> dict[str, Any]:
+        """
+        Build the websocket query used for the live Nova-3 handshake.
+
+        The connection starts from a minimal known-good option set, then
+        reintroduces Nova-3 keyterm prompting using Deepgram's supported
+        `keyterm` parameter when campus hints are available.
+        """
+        options = {
+            "model": _DEEPGRAM_MODEL,
+            "language": self._language,
+            "encoding": _DEEPGRAM_ENCODING,
+            "sample_rate": _DEEPGRAM_SAMPLE_RATE,
+            "channels": _DEEPGRAM_CHANNELS,
+            "interim_results": True,
+            "punctuate": True,
+            "smart_format": True,
+        }
+        options.update(self._build_nova3_keyterm_options())
+        return options
+
+    def _build_nova3_keyterm_options(self) -> dict[str, list[str]]:
+        """
+        Prepare the correct Nova-3 keyterm shape for a future opt-in rollout.
+        """
+        normalized_terms: list[str] = []
+        seen_terms: set[str] = set()
+
+        for raw_term in self._keyterms:
+            term = " ".join(str(raw_term).split()).strip()
+            if not term:
+                continue
+
+            dedupe_key = term.casefold()
+            if dedupe_key in seen_terms:
+                continue
+
+            seen_terms.add(dedupe_key)
+            normalized_terms.append(term)
+            if len(normalized_terms) >= _DEEPGRAM_MAX_KEYTERMS:
+                break
+
+        if not normalized_terms:
+            return {}
+
+        return {"keyterm": normalized_terms}
+
     # Transcript routing -------------------------------------------------
 
     def _handle_partial(self, event: TranscriptEvent) -> None:
@@ -349,8 +421,8 @@ class DeepgramStreamingClient:
     async def _connect_and_listen(self) -> None:
         try:
             from deepgram import AsyncDeepgramClient  # type: ignore
-            from deepgram.core.api_error import ApiError  # type: ignore
             from deepgram.core.events import EventType  # type: ignore
+            from deepgram.listen.v1.socket_client import AsyncV1SocketClient  # type: ignore
         except ImportError as exc:
             message = f"Deepgram SDK v6 imports are unavailable: {exc}"
             logger.error("deepgram_sdk_not_installed", error=str(exc))
@@ -362,68 +434,68 @@ class DeepgramStreamingClient:
         client = AsyncDeepgramClient(api_key=self._api_key)
         listener_task: Optional[asyncio.Task] = None
         keepalive_task: Optional[asyncio.Task] = None
+        connect_options = dict(self._connect_options)
+        websocket = None
 
         try:
-            async with client.listen.v1.connect(
-                model=_DEEPGRAM_MODEL,
-                language=self._language,
-                encoding=_DEEPGRAM_ENCODING,
-                sample_rate=_DEEPGRAM_SAMPLE_RATE,
-                channels=_DEEPGRAM_CHANNELS,
-                interim_results=True,
-                punctuate=True,
-                smart_format=True,
-                endpointing=_DEEPGRAM_ENDPOINTING_MS,
-                utterance_end_ms=_DEEPGRAM_UTTERANCE_END_MS,
-                vad_events=True,
-                keyterm=self._keyterms if self._keyterms else None,
-            ) as connection:
-                self._connection = connection
-                connection.on(EventType.OPEN, self._on_open_event)
-                connection.on(EventType.MESSAGE, self._on_message_event)
-                connection.on(EventType.ERROR, self._on_error_event)
-                connection.on(EventType.CLOSE, self._on_close_event)
+            ws_url, headers = self._build_websocket_request(client, connect_options)
+            websocket = await self._open_websocket(ws_url, headers)
+            connection = AsyncV1SocketClient(websocket=websocket)
+            self._connection = connection
+            connection.on(EventType.OPEN, self._on_open_event)
+            connection.on(EventType.MESSAGE, self._on_message_event)
+            connection.on(EventType.ERROR, self._on_error_event)
+            connection.on(EventType.CLOSE, self._on_close_event)
 
-                listener_task = asyncio.create_task(connection.start_listening(), name="deepgram-listener")
-                keepalive_task = asyncio.create_task(self._keepalive_loop(), name="deepgram-keepalive")
+            listener_task = asyncio.create_task(connection.start_listening(), name="deepgram-listener")
+            keepalive_task = asyncio.create_task(self._keepalive_loop(), name="deepgram-keepalive")
 
-                while not self._stop_requested.is_set():
-                    if listener_task.done():
-                        await self._raise_listener_error(listener_task)
-                        break
-                    await asyncio.sleep(_CONNECT_POLL_SEC)
+            while not self._stop_requested.is_set():
+                if listener_task.done():
+                    await self._raise_listener_error(listener_task)
+                    break
+                await asyncio.sleep(_CONNECT_POLL_SEC)
 
-                if self._stop_requested.is_set() and self._connection is not None:
-                    await self._finalize_if_pending(trigger="disconnect")
-                    try:
-                        await self._connection.send_close_stream()
-                    except Exception as exc:
-                        logger.warning("deepgram_close_stream_failed", error=str(exc))
+            if self._stop_requested.is_set() and self._connection is not None:
+                await self._finalize_if_pending(trigger="disconnect")
+                try:
+                    await self._connection.send_close_stream()
+                except Exception as exc:
+                    logger.warning("deepgram_close_stream_failed", error=str(exc))
 
-                if listener_task is not None:
-                    try:
-                        await asyncio.wait_for(listener_task, timeout=2.0)
-                    except asyncio.TimeoutError:
-                        listener_task.cancel()
-                        await asyncio.gather(listener_task, return_exceptions=True)
+            if listener_task is not None:
+                try:
+                    await asyncio.wait_for(listener_task, timeout=2.0)
+                except asyncio.TimeoutError:
+                    listener_task.cancel()
+                    await asyncio.gather(listener_task, return_exceptions=True)
 
-        except ApiError as exc:  # pragma: no cover - exercised only with live credentials
-            message = f"Deepgram API error: {getattr(exc, 'body', str(exc))}"
+        except Exception as exc:
+            message = f"Deepgram websocket error: {str(exc)}"
+            diagnostics = self._extract_websocket_error_details(exc)
+            response_details = self._format_handshake_diagnostics(diagnostics)
             self._connect_error = message
             logger.error(
                 "deepgram_connect_failed",
                 error=message,
-                status_code=getattr(exc, "status_code", None),
+                status_code=diagnostics.get("status_code"),
+                options=connect_options,
+                response_details=response_details or None,
+                response_probe=diagnostics or None,
             )
-            self._notify_error("deepgram_connect_failed", message)
-        except Exception as exc:
-            self._connect_error = str(exc)
-            logger.error("deepgram_connect_failed", error=str(exc))
-            self._notify_error("deepgram_connect_failed", str(exc))
+            self._notify_error(
+                "deepgram_connect_failed",
+                message if not response_details else f"{message} {response_details}",
+            )
         finally:
             if keepalive_task is not None:
                 keepalive_task.cancel()
                 await asyncio.gather(keepalive_task, return_exceptions=True)
+            if websocket is not None:
+                try:
+                    await websocket.close()
+                except Exception as exc:
+                    logger.warning("deepgram_websocket_close_failed", error=str(exc))
 
     async def _raise_listener_error(self, listener_task: asyncio.Task) -> None:
         try:
@@ -533,6 +605,82 @@ class DeepgramStreamingClient:
     async def _flush_pending_audio_and_finalize_if_needed(self) -> None:
         await self._flush_pending_audio()
         await self._finalize_if_pending(trigger="open")
+
+    def _build_websocket_request(self, client: Any, connect_options: dict[str, Any]) -> tuple[str, dict[str, str]]:
+        from deepgram.core.jsonable_encoder import jsonable_encoder  # type: ignore
+        from deepgram.core.query_encoder import encode_query  # type: ignore
+        from deepgram.core.remove_none_from_dict import remove_none_from_dict  # type: ignore
+
+        ws_url = client.listen.v1._raw_client._client_wrapper.get_environment().production + "/v1/listen"
+        encoded_query = encode_query(jsonable_encoder(remove_none_from_dict(connect_options)))
+        if encoded_query:
+            normalized_query = [
+                (key, str(value).lower() if isinstance(value, bool) else value)
+                for key, value in encoded_query
+            ]
+            ws_url = ws_url + "?" + urllib.parse.urlencode(normalized_query)
+
+        headers = client.listen.v1._raw_client._client_wrapper.get_headers()
+        return ws_url, headers
+
+    async def _open_websocket(self, ws_url: str, headers: dict[str, str]) -> Any:
+        import websockets  # type: ignore
+
+        try:
+            return await websockets.connect(ws_url, additional_headers=headers)
+        except TypeError:
+            return await websockets.connect(ws_url, extra_headers=headers)
+
+    def _extract_websocket_error_details(self, exc: Exception) -> dict[str, Any]:
+        details: dict[str, Any] = {
+            "exception_type": type(exc).__name__,
+            "exception": str(exc),
+        }
+
+        status_code = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if response is not None:
+            status_code = getattr(response, "status_code", status_code)
+            details["reason_phrase"] = getattr(response, "reason_phrase", None)
+
+            response_headers = getattr(response, "headers", None)
+            if response_headers is not None:
+                details["response_headers"] = dict(response_headers)
+
+            body = getattr(response, "body", b"")
+            if body:
+                if isinstance(body, (bytes, bytearray)):
+                    details["response_body"] = bytes(body).decode("utf-8", errors="replace")
+                else:
+                    details["response_body"] = str(body)
+
+        if status_code is not None:
+            details["status_code"] = status_code
+
+        return details
+
+    def _format_handshake_diagnostics(self, diagnostics: dict[str, Any]) -> str:
+        if not diagnostics:
+            return ""
+
+        parts: list[str] = []
+        status_code = diagnostics.get("status_code")
+        if status_code is not None:
+            parts.append(f"status_code={status_code}")
+
+        reason_phrase = diagnostics.get("reason_phrase")
+        if reason_phrase:
+            parts.append(f"reason={reason_phrase}")
+
+        response_body = diagnostics.get("response_body")
+        if response_body:
+            parts.append(f"body={response_body[:240]}")
+
+        exception_text = diagnostics.get("exception")
+        if exception_text and not parts:
+            parts.append(f"probe={exception_text}")
+
+        return "; ".join(parts)
 
     def _handle_deepgram_message(self, message: Any) -> None:
         message_type = str(getattr(message, "type", "") or "")
@@ -651,38 +799,103 @@ class DeepgramStreamingClient:
             logger.error("deepgram_error_callback_error", error=str(exc))
 
 
+def _append_keyterms(bucket: list[str], values: list[str], *, limit: int, seen: set[str]) -> None:
+    for raw_value in values:
+        value = " ".join(str(raw_value).split()).strip()
+        if not value:
+            continue
+
+        dedupe_key = value.casefold()
+        if dedupe_key in seen:
+            continue
+
+        seen.add(dedupe_key)
+        bucket.append(value)
+        if len(bucket) >= limit:
+            break
+
+
+def _load_column_values(conn, query: str) -> list[str]:
+    rows = conn.execute(query).fetchall()
+    return [row[0] for row in rows if row and row[0]]
+
+
 def load_keyterms_from_db() -> list[str]:
     """
     Load STT keyterm hints from the SQLite truth layer.
-    Returns a flat list of campus vocabulary words to boost in Deepgram.
+    Returns a curated list of campus phrases to boost in Deepgram.
 
     Sources:
-    - Location names and codes
+    - High-priority campus entities
+    - Common aliases
     - Staff names
-    - Department names
-    - Facility names
-    - All alias texts
     """
     try:
         conn = get_db()
-        terms: list[str] = []
+        high_priority_entities = _load_column_values(
+            conn,
+            """
+            SELECT name FROM locations WHERE is_active=1
+            UNION ALL
+            SELECT name FROM departments WHERE is_active=1
+            UNION ALL
+            SELECT name FROM facilities WHERE is_active=1;
+            """,
+        )
+        common_aliases = [
+            alias
+            for alias in _load_column_values(
+                conn,
+                """
+                SELECT alias_text
+                FROM aliases
+                WHERE canonical_type IN ('location', 'department', 'facility')
+                ORDER BY LENGTH(alias_text) ASC, alias_text ASC;
+                """,
+            )
+            if alias.casefold() not in _ALIAS_BLACKLIST and len(alias.strip()) >= 3
+        ]
+        staff_names = _load_column_values(
+            conn,
+            "SELECT full_name FROM staff WHERE is_active=1 ORDER BY full_name ASC;",
+        )
 
-        for table, col in [
-            ("locations", "name"),
-            ("locations", "code"),
-            ("staff", "full_name"),
-            ("departments", "name"),
-            ("facilities", "name"),
-            ("aliases", "alias_text"),
-        ]:
-            rows = conn.execute(f"SELECT {col} FROM {table} WHERE {col} IS NOT NULL;").fetchall()
-            for row in rows:
-                val = row[0].strip()
-                if val:
-                    terms.append(val)
+        seen_terms: set[str] = set()
+        entity_terms: list[str] = []
+        alias_terms: list[str] = []
+        staff_terms: list[str] = []
 
-        logger.info("deepgram_keyterms_loaded", count=len(terms))
-        return terms
+        _append_keyterms(
+            entity_terms,
+            high_priority_entities,
+            limit=_ENTITY_KEYTERM_LIMIT,
+            seen=seen_terms,
+        )
+        _append_keyterms(
+            alias_terms,
+            common_aliases,
+            limit=min(_ALIAS_KEYTERM_LIMIT, _DEEPGRAM_MAX_KEYTERMS - len(entity_terms)),
+            seen=seen_terms,
+        )
+        _append_keyterms(
+            staff_terms,
+            staff_names,
+            limit=min(
+                _STAFF_KEYTERM_LIMIT,
+                _DEEPGRAM_MAX_KEYTERMS - len(entity_terms) - len(alias_terms),
+            ),
+            seen=seen_terms,
+        )
+        curated_terms = entity_terms + alias_terms + staff_terms
+
+        logger.info(
+            "deepgram_keyterms_loaded",
+            count=len(curated_terms),
+            high_priority_count=len(entity_terms),
+            aliases_count=len(alias_terms),
+            staff_count=len(staff_terms),
+        )
+        return curated_terms
 
     except Exception as exc:
         logger.error("deepgram_keyterms_load_error", error=str(exc))

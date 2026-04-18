@@ -26,6 +26,34 @@ _LEVEL_MAP: dict[str, int] = {
     "ERROR": logging.ERROR,
     "CRITICAL": logging.CRITICAL,
 }
+_NOISY_LOGGER_LEVELS: dict[str, int] = {
+    "pipecat": logging.WARNING,
+    "httpx": logging.WARNING,
+    "httpcore": logging.WARNING,
+    "websockets": logging.WARNING,
+    "asyncio": logging.WARNING,
+}
+_THIRD_PARTY_NOISE_CONFIGURED = False
+
+
+def _configure_third_party_noise(level: int | None = None) -> None:
+    """Reduce noisy stdlib and Loguru output from third-party libraries."""
+    global _THIRD_PARTY_NOISE_CONFIGURED
+
+    target_level = level if level is not None else logging.INFO
+    for logger_name, logger_level in _NOISY_LOGGER_LEVELS.items():
+        logging.getLogger(logger_name).setLevel(max(target_level, logger_level))
+
+    try:
+        from loguru import logger as loguru_logger  # type: ignore
+
+        if (not _THIRD_PARTY_NOISE_CONFIGURED) or (level is not None):
+            loguru_logger.remove()
+            loguru_logger.add(sys.stderr, level="WARNING")
+    except ImportError:
+        pass
+
+    _THIRD_PARTY_NOISE_CONFIGURED = True
 
 
 def setup_logging() -> None:
@@ -85,6 +113,7 @@ def setup_logging() -> None:
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
+    _configure_third_party_noise(level)
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
@@ -101,4 +130,6 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
         logger = get_logger(__name__)
         logger.info("mic_ready", device_index=0, sample_rate=16000)
     """
+    if not _THIRD_PARTY_NOISE_CONFIGURED:
+        _configure_third_party_noise()
     return structlog.get_logger(name)

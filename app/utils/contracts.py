@@ -175,6 +175,12 @@ class RetrievalResult:
     confidence: float = 0.0
     """Retrieval confidence from 0.0 to 1.0."""
 
+    second_best_score: float = 0.0
+    """Score of the next-best candidate when available."""
+
+    score_margin: float = 0.0
+    """Difference between the best and second-best candidate scores."""
+
     candidates: list[str] = field(default_factory=list)
     """Candidate names when status is AMBIGUOUS. Used to build clarification question."""
 
@@ -183,6 +189,12 @@ class RetrievalResult:
 
     matched_via: Optional[str] = None
     """How the match was found: alias, fts_locations, fts_staff, etc."""
+
+    normalized_query: Optional[str] = None
+    """Normalized retrieval query used for database matching."""
+
+    nav_safety_notes: Optional[str] = None
+    """Optional navigation safety notes loaded with the navigation target."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────

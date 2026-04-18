@@ -142,10 +142,12 @@ INSERT INTO locations (id, code, name, building, floor, room, description, map_n
     (6, 'CS_DEPT_OFF', 'Computer Science Office', 'Building A', '3', '301', 'CS department', 'a3_r301');
 
 -- Navigation targets
-INSERT INTO navigation_targets (target_type, canonical_id, nav_code) VALUES
-    ('location', 1, 'NAV_LAB_214'),
-    ('location', 2, 'NAV_LAB_101'),
-    ('location', 3, 'NAV_LIB_MAIN');
+INSERT INTO navigation_targets (target_type, canonical_id, nav_code, safety_notes) VALUES
+    ('location', 1, 'NAV_LAB_214', 'Use the lab corridor'),
+    ('location', 2, 'NAV_LAB_101', 'Use the main hall'),
+    ('location', 3, 'NAV_LIB_MAIN', 'Slow near study zones'),
+    ('department', 3, 'NAV_AI_DEPT', 'Use the north corridor'),
+    ('facility', 2, 'NAV_MEDICAL', 'Keep access path clear');
 
 -- Staff
 INSERT INTO staff (id, full_name, title, department_id, office_location_id, contact_notes) VALUES
@@ -357,6 +359,17 @@ class TestNavigationTargets:
         result = retrieve("cafeteria")
         assert result.status == RetrievalStatus.OK
         assert result.nav_code is None
+
+    def test_department_nav_code_returned(self):
+        result = retrieve("Artificial Intelligence Department")
+        assert result.status == RetrievalStatus.OK
+        assert result.nav_code == "NAV_AI_DEPT"
+
+    def test_facility_nav_code_and_safety_notes_returned(self):
+        result = retrieve("medical center")
+        assert result.status == RetrievalStatus.OK
+        assert result.nav_code == "NAV_MEDICAL"
+        assert result.nav_safety_notes == "Keep access path clear"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
