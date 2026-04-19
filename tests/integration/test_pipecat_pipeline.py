@@ -120,7 +120,7 @@ async def test_navigation_request_emits_action_payload(monkeypatch, tmp_path):
 
         events = [event.name for event in runtime.tracer.events()]
         assert router_groq.complete_json.called
-        assert captured_payload["target_code"] == "NAV_LAB_214"
+        assert captured_payload["target_code"] == "NAV_C105"
         assert captured_payload["action"] == "navigate"
         assert "action_emitted" in events
     finally:

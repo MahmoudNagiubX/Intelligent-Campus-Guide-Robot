@@ -47,9 +47,9 @@ SCENARIOS = [
         False,
     ),
     (
-        "Hey Jarvis, take me to Lab 214.",
+        "Hey Jarvis, take me to C214.",
         IntentClass.NAVIGATION_REQUEST,
-        "Lab 214",
+        "C214",
         True,
     ),
 ]
@@ -72,13 +72,13 @@ async def test_mocked_end_to_end_turn_scenarios(
     bootstrap_and_sync()
 
     conn = get_db()
-    lab_id = conn.execute("SELECT id FROM locations WHERE code='LAB_214';").fetchone()["id"]
-    se_dept_id = conn.execute("SELECT id FROM departments WHERE code='SE_DEPT';").fetchone()["id"]
+    lab_id = conn.execute("SELECT id FROM locations WHERE code='C214';").fetchone()["id"]
+    se_dept_id = conn.execute("SELECT id FROM departments WHERE code='SET';").fetchone()["id"]
     conn.executemany(
-        "INSERT INTO navigation_targets (target_type, canonical_id, nav_code) VALUES (?, ?, ?);",
+        "INSERT OR IGNORE INTO navigation_targets (target_type, canonical_id, nav_code) VALUES (?, ?, ?);",
         [
-            ("location", lab_id, "NAV_LAB_214"),
-            ("department", se_dept_id, "NAV_SE_DEPT"),
+            ("location", lab_id, "NAV_C214"),
+            ("department", se_dept_id, "NAV_SET_DEPT"),
         ],
     )
     conn.commit()

@@ -1,6 +1,5 @@
 code,name,building,floor,room,description,head_name,contact_email
-CS_DEPT,Computer Science Department,Building A,3,301,Undergraduate and postgraduate CS programs,Dr. Mohamed Hassan,cs@university.edu
-SE_DEPT,Software Engineering Department,Building A,3,305,Software Engineering undergraduate programs,Dr. Sara Ali,se@university.edu
-EE_DEPT,Electrical Engineering Department,Building B,2,210,Electrical and Electronics Engineering,Dr. Khaled Nasser,ee@university.edu
-AI_DEPT,Artificial Intelligence Department,Building A,4,401,AI and Machine Learning programs,Dr. Layla Ibrahim,ai@university.edu
-ADMIN,Administration,Main Building,1,101,University administration and student affairs,Ms. Dina Mostafa,admin@university.edu
+SET,Software Engineering Department,C,Ground Floor,C112,,,
+CBE,Civil Engineering Department,C,Ground Floor,C110,,,
+MCT,Mechatronics Engineering Department,C,Ground Floor,C113,,,
+ERG,Renewable Energy Engineering Department,C,Ground Floor,C106,,,

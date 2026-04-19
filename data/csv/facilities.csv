@@ -1,11 +1,7 @@
 code,name,category,building,floor,room,description
-WIFI_MAIN,Main Campus Wi-Fi Zone,wifi,Library Building,1,,High-speed wireless internet coverage throughout the library
-WIFI_LAB,Lab Wi-Fi Zone,wifi,Building A,1,,Wireless internet in all computer labs
-PRINT_LIB,Library Printing Station,printing,Library Building,1,,Black and white and color printing available
-PRINT_ADMIN,Admin Printing Station,printing,Main Building,1,101,Printing and document services near administration
-ATM_MAIN,Campus ATM,atm,Student Center,1,,24-hour ATM machine near main cafeteria
-MEDICAL,Medical Center,health,Main Building,2,201,Student health and first aid services
-PARKING_B,Parking Lot B,parking,Parking Area B,,,Staff and visitor parking area
-STUDY_LIB,Library Study Rooms,study,Library Building,2,,Quiet individual and group study rooms - booking required
-CANTEEN_B,Building B Canteen,food,Building B,1,,Small cafe and snacks canteen
-IT_SUPPORT,IT Support Desk,support,Building A,1,110,Technical support for campus systems and accounts
+STAIRWELL_1,Stairwell 1,landmark,C,Ground Floor and First Floor,,Lefthand stairwell near the entrance
+STAIRWELL_2,Stairwell 2,landmark,C,Ground Floor and First Floor,,Righthand stairwell at the back of the building near C209 and C208
+CHARGING_STATION,Charging Station,facility,C,Ground Floor,,Phone charging station in the leftside hallway between C110 and C111
+PATHWAY,Middle Pathway,landmark,C,Ground Floor,,Path connecting the leftside and rightside hallway at the middle
+LAVATORY_1,Restroom 1,restroom,C,Ground Floor,,Restroom behind the right stairwell near C109
+LAVATORY_2,Restroom 2,restroom,C,First Floor,,Restroom behind the right stairwell near C209

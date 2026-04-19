@@ -56,8 +56,8 @@ async def test_groq_timeout_falls_back_to_grounded_facts(monkeypatch, tmp_path):
 
         response_events = [e for e in runtime.tracer.events() if e.name == "response_generated"]
         assert response_events
-        assert "Robotics Lab" in response_events[-1].data["text"]
-        assert "Building C" in response_events[-1].data["text"]
+        assert "Robotics" in response_events[-1].data["text"]
+        assert "C105" in response_events[-1].data["text"]
     finally:
         await runtime.shutdown()
 

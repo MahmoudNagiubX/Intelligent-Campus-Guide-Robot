@@ -1,27 +1,34 @@
-target_type,canonical_id,nav_code,safety_notes
-location,1,NAV_LAB_214,Use lab corridor route and slow near equipment carts
-location,2,NAV_LAB_101,Use main academic hallway route
-location,3,NAV_LAB_102,Use main academic hallway route
-location,4,NAV_AI_LAB,Use elevator if the robot is carrying payload
-location,5,NAV_HALL_A,Expect high foot traffic near lecture start times
-location,6,NAV_HALL_B,Approach through the Building B main corridor
-location,7,NAV_LIB_MAIN,Keep speed low near study zones
-location,8,NAV_CAFE_MAIN,Expect dense traffic around lunch hours
-location,9,NAV_ADMIN_OFF,Queue near service windows may block the doorway
-location,10,NAV_SE_OFF,Use the Building A central stair route
-location,11,NAV_CS_OFF,Use the Building A central stair route
-location,12,NAV_AI_OFF,Use the Building A north corridor on floor four
-location,13,NAV_MOSQUE,Pause near the entrance during prayer traffic
-location,14,NAV_GYM,Expect wide turns near the sports hall doors
-location,15,NAV_PARKING_A,Outdoor route may vary with parked vehicles
-department,1,NAV_CS_DEPT,Route to the department office frontage
-department,2,NAV_SE_DEPT,Route to the department office frontage
-department,3,NAV_EE_DEPT,Use Building B elevator if needed
-department,4,NAV_AI_DEPT,Use the Building A north corridor on floor four
-department,5,NAV_ADMIN_DEPT,Approach through the main services corridor
-facility,1,NAV_WIFI_MAIN,Best reached through the library entrance
-facility,3,NAV_PRINT_LIB,Keep clear of student printer queues
-facility,5,NAV_ATM_MAIN,Approach from the student center lobby
-facility,6,NAV_MEDICAL,Keep approach path clear for emergency access
-facility,8,NAV_STUDY_LIB,Use quiet-mode routing near study rooms
-facility,10,NAV_IT_SUPPORT,Expect short queue near the support desk
+target_type,canonical_code,nav_code,safety_notes
+location,C101,NAV_C101,You are at or near the entrance area (C101).
+location,C103,NAV_C103,Walk from the entrance (C101) past C102; C103 is the next room on the left.
+location,C105,NAV_C105,Walk from the entrance (C101) past C102 C103 C104; C105 is the next room on the left.
+location,C106,NAV_C106,Walk from the entrance (C101) past C102 C103 C104 C105; C106 is at the back of the left side.
+location,C107,NAV_C107,Walk from the entrance (C101) past C102 C103 C104 C105 C106; C107 is at the middle cross alongside C108.
+location,C108,NAV_C108,Walk from the entrance (C101) past C102 C103 C104 C105 C106; C108 is at the middle cross alongside C107.
+location,C109,NAV_C109,Walk from the entrance (C101) past C102 C103 C104 C105 C106 cross middle; C109 is immediately after C108 on the right side.
+location,C110,NAV_C110,Walk from the entrance (C101) past C102 C103 C104 C105 C106 cross middle then C109; C110 is the next room on the right.
+location,C111,NAV_C111,Walk from the entrance (C101) past C102 C103 C104 C105 C106 cross middle then C109 C110; C111 is the next room on the right.
+location,C112,NAV_C112,Walk from the entrance (C101) past C102 C103 C104 C105 C106 cross middle then C109 C110 C111; C112 is the next room on the right.
+location,C113,NAV_C113,Walk from the entrance (C101) past C102 C103 C104 C105 C106 cross middle then C109 C110 C111 C112; C113 is the next room on the right.
+location,C114,NAV_C114,Walk from the entrance (C101) past C102 C103 C104 C105 C106 cross middle then C109 C110 C111 C112 C113; C114 is on the right side.
+location,C115,NAV_C115,Walk from the entrance (C101) past C102 C103 C104 C105 C106 cross middle then C109 C110 C111 C112 C113 C114; C115 is at the front right.
+location,C201,NAV_C201,Take the left stairwell up to the first floor; exit near C201; C201 is immediately there on the left.
+location,C202,NAV_C202,Take the left stairwell up to the first floor; exit near C201; C202 is the next room after C201.
+location,C203,NAV_C203,Take the left stairwell up to the first floor; exit near C201; walk past C202; C203 is the next room.
+location,C204,NAV_C204,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203; C204 is the next room.
+location,C205,NAV_C205,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204; C205 is the next room.
+location,C206,NAV_C206,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205; C206 is at the back of the left side.
+location,C207,NAV_C207,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206; C207 is at the middle cross alongside C208.
+location,C208,NAV_C208,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206; C208 is at the middle cross alongside C207.
+location,C209,NAV_C209,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle; C209 is immediately to the right at the back.
+location,C210,NAV_C210,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle then C209; C210 is the next room.
+location,C211,NAV_C211,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle then C209 C210; C211 is the next room on the right.
+location,C212,NAV_C212,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle then C209 C210 C211; C212 is the next room.
+location,C213,NAV_C213,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle then C209 C210 C211 C212; C213 is the next room.
+location,C214,NAV_C214,Take the left stairwell up to the first floor; exit near C201; turn right; C214 is at the front right corner.
+facility,LAVATORY_1,NAV_LAVATORY_1,Walk from the entrance past C102 C103 C104 C105 C106 cross middle then C109; the restroom is behind the right stairwell near C109.
+facility,LAVATORY_2,NAV_LAVATORY_2,Take the left stairwell up to the first floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle; the restroom is behind the right stairwell near C209.
+department,SET,NAV_SET_DEPT,The SET staff office is C112. Walk from the entrance past C102 C103 C104 C105 C106 cross middle then C109 C110 C111; C112 is the next room.
+department,CBE,NAV_CBE_DEPT,The CBE staff office is C110. Walk from the entrance past C102 C103 C104 C105 C106 cross middle then C109; C110 is immediately after.
+department,MCT,NAV_MCT_DEPT,The MCT staff office is C113. Walk from the entrance past C102 C103 C104 C105 C106 cross middle then C109 C110 C111 C112; C113 is the next room.
+department,ERG,NAV_ERG_DEPT,The ERG staff office is C106. Walk from the entrance past C102 C103 C104 C105; C106 is at the back of the left side.

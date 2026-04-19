@@ -401,8 +401,13 @@ class TestFacilitySync:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestAliasSync:
+    def _seed_location(self, db) -> None:
+        db.execute("INSERT INTO locations (id, code, name) VALUES (1, 'C105', 'Robotics and Mechatronics Labs');")
+        db.commit()
+
     def test_inserts_alias(self, db):
-        rows = [{"canonical_type": "location", "canonical_id": "1", "alias_text": "robot room"}]
+        self._seed_location(db)
+        rows = [{"canonical_type": "location", "canonical_code": "C105", "alias_text": "robot room"}]
         upserted, skipped, errored = _sync_aliases(db, rows, "test")
         db.commit()
         assert upserted == 1
@@ -410,7 +415,8 @@ class TestAliasSync:
         assert row is not None
 
     def test_deduplicates_on_repeat(self, db):
-        rows = [{"canonical_type": "location", "canonical_id": "1", "alias_text": "robot room"}]
+        self._seed_location(db)
+        rows = [{"canonical_type": "location", "canonical_code": "C105", "alias_text": "robot room"}]
         _sync_aliases(db, rows, "test")
         db.commit()
         _sync_aliases(db, rows, "test")
@@ -419,12 +425,19 @@ class TestAliasSync:
         assert count == 1
 
     def test_skips_missing_required_fields(self, db):
-        rows = [{"canonical_type": "location", "canonical_id": "", "alias_text": "robot room"}]
+        rows = [{"canonical_type": "location", "canonical_code": "", "alias_text": "robot room"}]
         upserted, skipped, errored = _sync_aliases(db, rows, "test")
         assert skipped == 1
 
+    def test_skips_unknown_canonical_code(self, db):
+        rows = [{"canonical_type": "location", "canonical_code": "NONEXISTENT", "alias_text": "robot room"}]
+        upserted, skipped, errored = _sync_aliases(db, rows, "test")
+        assert skipped == 1
+        assert upserted == 0
+
     def test_normalizes_alias_text(self, db):
-        rows = [{"canonical_type": "location", "canonical_id": "1", "alias_text": "  Robot  Room  "}]
+        self._seed_location(db)
+        rows = [{"canonical_type": "location", "canonical_code": "C105", "alias_text": "  Robot  Room  "}]
         _sync_aliases(db, rows, "test")
         db.commit()
         row = db.execute("SELECT * FROM aliases WHERE normalized_alias='robot room';").fetchone()
@@ -434,21 +447,21 @@ class TestAliasSync:
 
 class TestNavigationTargetSync:
     def _seed_targets(self, db) -> None:
-        db.execute("INSERT INTO locations (id, code, name) VALUES (1, 'LAB_214', 'Robotics Lab');")
-        db.execute("INSERT INTO departments (id, code, name) VALUES (1, 'CS_DEPT', 'Computer Science Department');")
-        db.execute("INSERT INTO facilities (id, code, name) VALUES (1, 'MEDICAL', 'Medical Center');")
+        db.execute("INSERT INTO locations (id, code, name) VALUES (1, 'C214', 'Control Admin');")
+        db.execute("INSERT INTO departments (id, code, name) VALUES (1, 'SET', 'Software Engineering Department');")
+        db.execute("INSERT INTO facilities (id, code, name) VALUES (1, 'LAVATORY_1', 'Restroom 1');")
         db.commit()
 
     def test_inserts_navigation_target(self, db):
         self._seed_targets(db)
-        rows = [{"target_type": "location", "canonical_id": "1", "nav_code": "NAV_LAB_214"}]
+        rows = [{"target_type": "location", "canonical_code": "C214", "nav_code": "NAV_C214"}]
         upserted, skipped, errored = _sync_navigation_targets(db, rows, "test")
         db.commit()
 
         assert upserted == 1
         assert skipped == 0
         assert errored == 0
-        row = db.execute("SELECT * FROM navigation_targets WHERE nav_code='NAV_LAB_214';").fetchone()
+        row = db.execute("SELECT * FROM navigation_targets WHERE nav_code='NAV_C214';").fetchone()
         assert row is not None
         assert row["target_type"] == "location"
 
@@ -456,30 +469,30 @@ class TestNavigationTargetSync:
         self._seed_targets(db)
         _sync_navigation_targets(
             db,
-            [{"target_type": "facility", "canonical_id": "1", "nav_code": "NAV_MEDICAL", "safety_notes": "old"}],
+            [{"target_type": "facility", "canonical_code": "LAVATORY_1", "nav_code": "NAV_LAVATORY_1", "safety_notes": "old path"}],
             "test",
         )
         db.commit()
 
         _sync_navigation_targets(
             db,
-            [{"target_type": "facility", "canonical_id": "1", "nav_code": "NAV_MEDICAL", "safety_notes": "new"}],
+            [{"target_type": "facility", "canonical_code": "LAVATORY_1", "nav_code": "NAV_LAVATORY_1", "safety_notes": "new path"}],
             "test",
         )
         db.commit()
 
-        row = db.execute("SELECT safety_notes FROM navigation_targets WHERE nav_code='NAV_MEDICAL';").fetchone()
-        assert row["safety_notes"] == "new"
+        row = db.execute("SELECT safety_notes FROM navigation_targets WHERE nav_code='NAV_LAVATORY_1';").fetchone()
+        assert row["safety_notes"] == "new path"
 
     def test_skips_unknown_target_type(self, db):
-        rows = [{"target_type": "staff", "canonical_id": "1", "nav_code": "NAV_BAD"}]
+        rows = [{"target_type": "staff", "canonical_code": "Dr. Someone", "nav_code": "NAV_BAD"}]
         upserted, skipped, errored = _sync_navigation_targets(db, rows, "test")
         assert upserted == 0
         assert skipped == 1
         assert errored == 0
 
     def test_skips_missing_canonical_record(self, db):
-        rows = [{"target_type": "location", "canonical_id": "99", "nav_code": "NAV_MISSING"}]
+        rows = [{"target_type": "location", "canonical_code": "NONEXISTENT", "nav_code": "NAV_MISSING"}]
         upserted, skipped, errored = _sync_navigation_targets(db, rows, "test")
         assert upserted == 0
         assert skipped == 1

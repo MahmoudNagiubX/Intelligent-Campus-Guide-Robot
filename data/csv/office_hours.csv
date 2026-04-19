@@ -1,14 +1,48 @@
 staff_full_name,weekday,start_time,end_time,notes,source_version
-Dr. Ahmed Samy,Sunday,10:00,12:00,,v1
-Dr. Ahmed Samy,Tuesday,14:00,16:00,,v1
-Dr. Nour El-Din,Monday,09:00,11:00,,v1
-Dr. Nour El-Din,Wednesday,13:00,15:00,,v1
-Dr. Sara Ali,Sunday,11:00,13:00,By appointment preferred,v1
-Dr. Sara Ali,Thursday,10:00,12:00,,v1
-Dr. Mohamed Hassan,Tuesday,10:00,12:00,,v1
-Dr. Layla Ibrahim,Thursday,14:00,16:00,Research group only,v1
-Ms. Dina Mostafa,Sunday,08:30,14:30,,v1
-Ms. Dina Mostafa,Monday,08:30,14:30,,v1
-Ms. Dina Mostafa,Tuesday,08:30,14:30,,v1
-Ms. Dina Mostafa,Wednesday,08:30,14:30,,v1
-Ms. Dina Mostafa,Thursday,08:30,14:30,,v1
+Dr. Islam Mohamed,Sunday,10:00,12:00,,
+Dr. Myar Ali,Monday,12:00,14:00,,
+Dr. Cherry Aly,Sunday,08:30,09:00,,
+Dr. Fatima Sakr,Tuesday,08:30,10:00,,
+Dr. Amr Ibrahim,Saturday,09:00,12:00,,
+Dr. Doaa Mabrouk,Sunday,09:00,10:30,,
+Dr. Ibrahim Diaaeldin,Tuesday,09:30,10:30,,
+Dr. Ola Mayhoub,Thursday,14:00,15:30,,
+Dr. Abanoub Shenouda,Saturday,12:30,14:00,,
+Dr. Ahmed Abd-Elkhaled,Thursday,12:30,13:00,,
+Dr. Ashraf Mohamed,Sunday,10:00,11:00,,
+Dr. Mohamed Salah,Wednesday,10:00,10:30,,
+Dr. Hussein Elsayed,Sunday,12:30,14:00,,
+Dr. Emad Abd-Elhafiez,Saturday,12:00,12:30,,
+Dr. Milad Samir,Thursday,12:00,13:30,,
+Dr. Ehab Nossier,Sunday,10:00,12:00,,
+Dr. Sara El-Shatalawy,Wednesday,10:30,11:00,,
+Dr. Hussein Waly,Tuesday,10:30,11:00,,
+Dr. Shady Abd-Elnasser,Wednesday,10:30,12:00,,
+Dr. Kadry Ali Ezzat,Sunday,14:00,14:30,,
+Dr. Reham Abobeah,Thursday,15:30,16:30,,
+Dr. Mohamed Youssef,Tuesday,13:00,14:30,,
+Dr. Ahmed Osman,Sunday,11:00,11:30,,
+Dr. Mohamed Elsayed Mostafa,Wednesday,11:00,12:30,,
+Dr. Soliman Mabrouk,Sunday,13:00,14:00,,
+Dr. Mohamed Nabil,Thursday,14:00,15:00,,
+Dr. Mohamed Ismail,Sunday,12:30,14:30,,
+Dr. Youssef Attay,Tuesday,10:30,12:30,,
+Dr. Sabah Saad,Monday,12:30,16:30,,
+Mohamed Hany,Sunday,10:30,12:30,,
+Norhan Mamdoh,Tuesday,08:30,11:00,,
+Abdulrahman Gaber,Wednesday,09:30,12:30,,
+Maiada Alaa Eldin Ali,Saturday,08:00,09:00,,
+Ahmed Samir,Thursday,09:30,11:00,,
+Doaa Amin,Sunday,13:00,15:30,,
+Hagar Rabea,Wednesday,13:30,14:00,,
+Mohamed Khatab,Wednesday,12:00,13:00,,
+Hussain Mohamed,Sunday,08:30,09:30,,
+Asmaa Elboghdady,Thursday,15:00,16:00,,
+Yara Afifi,Saturday,09:00,11:00,,
+Fady Romany,Wednesday,12:00,12:30,,
+Tahia Ahmed,Thursday,13:30,14:30,,
+Yasmeen Magdy,Tuesday,09:30,10:30,,
+Nada Oda,Wednesday,10:00,13:00,,
+Rawan Sultan,Saturday,14:00,14:30,,
+Menna Salah,Thursday,13:00,13:30,,
+Youmna Basset,Tuesday,09:30,11:30,,

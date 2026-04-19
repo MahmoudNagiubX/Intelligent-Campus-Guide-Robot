@@ -1,16 +1,30 @@
 code,name,building,floor,room,description,department_code,map_node
-LAB_214,Robotics Lab,Building C,2,214,Main robotics and embedded systems lab,,c2_r214
-LAB_101,Computer Lab 101,Building A,1,101,General purpose computing lab,CS_DEPT,a1_r101
-LAB_102,Computer Lab 102,Building A,1,102,Programming and software lab,SE_DEPT,a1_r102
-LAB_305,AI Lab,Building A,3,305,Machine learning and AI research lab,AI_DEPT,a3_r305
-HALL_A,Lecture Hall A,Building A,1,105,Large lecture hall capacity 200,,a1_h105
-HALL_B,Lecture Hall B,Building B,1,110,Large lecture hall capacity 150,,b1_h110
-LIB_MAIN,Main Library,Library Building,1,,University main library and study areas,,lib_main
-CAFE_MAIN,Main Cafeteria,Student Center,1,,Main campus cafeteria and food court,,cafe_main
-ADMIN_OFF,Administration Office,Main Building,1,101,Student affairs and registration,ADMIN,main_r101
-SE_DEPT_OFF,Software Engineering Office,Building A,3,305,SE department office,SE_DEPT,a3_r305
-CS_DEPT_OFF,Computer Science Office,Building A,3,301,CS department office,CS_DEPT,a3_r301
-AI_DEPT_OFF,AI Department Office,Building A,4,401,AI department office,AI_DEPT,a4_r401
-MOSQUE,Campus Mosque,Mosque Building,1,,University mosque for prayers,,mosque_main
-GYM,Sports Hall,Sports Building,1,,Gymnasium and sports facilities,,sports_main
-PARKING_A,Parking Lot A,Parking Area A,,,Main student parking area,,park_a
+C101,Vice Dean for Student Affairs Office,C,Ground Floor,C101,Vice Dean for Student Affairs,,
+C102,College General Secretary Office,C,Ground Floor,C102,College General Secretary,,
+C103,Mechanics and CNC Labs,C,Ground Floor,C103,"Theory of Mechanics Lab, CNC Lab, Stress Lab",,
+C104,Vice Dean Office,C,Ground Floor,C104,Vice Dean Office,,
+C105,Robotics and Mechatronics Labs,C,Ground Floor,C105,"Robotics and Machine Vision Lab, Automatic Control Lab, Prototyping Lab, Festo Pneumonics and Hydraulics Lab",,
+C106,ERG Staff Office,C,Ground Floor,C106,Renewable Energy Engineering Department Staff Office,ERG,
+C107,Digital Design and Embedded Systems Labs,C,Ground Floor,C107,"Digital Design and Microcontrollers Lab, Introduction to Mechatronics Lab, Industrial Networks and Embedded Systems Lab",,
+C108,Fluid Mechatronics Lab,C,Ground Floor,C108,Fluid Mechatronics Lab,,
+C109,Teaching Assistants Office,C,Ground Floor,C109,Teaching Assistants Office,,
+C110,CBE Staff Office,C,Ground Floor,C110,Civil Engineering Department Staff Office,CBE,
+C111,SET Teaching Assistants Office,C,Ground Floor,C111,Software Engineering Department Teaching Assistants Office,SET,
+C112,SET Staff Office,C,Ground Floor,C112,Software Engineering Department Staff Office,SET,
+C113,MCT Staff Office,C,Ground Floor,C113,Mechatronics Engineering Department Staff Office,MCT,
+C114,Dean Secretary Office,C,Ground Floor,C114,Dean Secretary Office,,
+C115,Faculty Dean Office,C,Ground Floor,C115,Faculty Dean Office,,
+C201,Data Center,C,First Floor,C201,Data Center Administration,,
+C202,IT Administration,C,First Floor,C202,IT Department Administration,,
+C203,Teaching Assistants Office,C,First Floor,C203,Teaching Assistants Office,,
+C204,Engineering Teaching Assistants Office,C,First Floor,C204,Engineering Teaching Assistants Office,,
+C205,Staff Room,C,First Floor,C205,Staff Room,,
+C206,Chinese Faculty Room,C,First Floor,C206,Chinese Faculty Staff Room,,
+C207,Power Electronics and Energy Labs,C,First Floor,C207,"Power Electronics Lab, Motor Drives Lab, Electric and Electronic Measurements Lab, Signals and Systems Lab, Electric and Electronic Circuits Lab",,
+C208,Thermodynamics and Heat Transfer Labs,C,First Floor,C208,"Thermodynamics Lab, Heat Transfer Lab",,
+C209,Quality Control Administration,C,First Floor,C209,Quality Control Administration,,
+C210,Staff Room,C,First Floor,C210,Staff Room,,
+C211,PLC and Machine Design Labs,C,First Floor,C211,"PLC Lab, Mechatronics Measurement Lab, Machine Design Lab",,
+C212,Staff Room,C,First Floor,C212,Staff Room,,
+C213,Control Administration,C,First Floor,C213,Control Administration,,
+C214,Control Administration,C,First Floor,C214,Control Administration,,

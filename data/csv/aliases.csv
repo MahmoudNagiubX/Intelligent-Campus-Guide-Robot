@@ -1,38 +1,195 @@
-canonical_type,canonical_id,alias_text
-location,1,robot room
-location,1,robotics room
-location,1,lab 214
-location,1,room 214
-location,1,the robot lab
-location,2,computer lab
-location,2,lab 101
-location,3,software lab
-location,3,lab 102
-location,5,main hall
-location,5,hall a
-location,7,library
-location,7,the library
-location,7,lib
-location,8,cafeteria
-location,8,food court
-location,8,canteen
-location,9,admin
-location,9,administration
-location,9,student affairs
-location,9,registration office
-location,13,mosque
-location,13,prayer area
-location,14,gym
-location,14,sports
-staff,2,Dr Sara
-staff,2,Sara Ali
-staff,2,Dr Sara Ali
-staff,5,Dr Ahmed
-staff,5,Ahmed Samy
-staff,5,Dr Ahmed Samy
-staff,1,Dr Mohamed Hassan
-staff,1,Hassan
-staff,7,admin office
-staff,7,Dina
-staff,8,Dr Hana
-staff,8,Dr Hana Farouk
+canonical_type,canonical_code,alias_text
+location,C103,mechanics lab
+location,C103,theory of mechanics lab
+location,C103,cnc lab
+location,C103,stress lab
+location,C105,robotics lab
+location,C105,machine vision lab
+location,C105,automatic control lab
+location,C105,prototyping lab
+location,C105,festo lab
+location,C105,pneumatics lab
+location,C105,hydraulics lab
+location,C107,digital design lab
+location,C107,microcontrollers lab
+location,C107,embedded systems lab
+location,C107,introduction to mechatronics lab
+location,C108,fluid mechanics lab
+location,C108,fluid mechatronics lab
+location,C207,power electronics lab
+location,C207,motor drives lab
+location,C207,measurements lab
+location,C207,signals lab
+location,C207,signals and systems lab
+location,C207,circuits lab
+location,C208,thermodynamics lab
+location,C208,heat transfer lab
+location,C211,plc lab
+location,C211,mechatronics measurement lab
+location,C211,machine design lab
+location,C115,dean office
+location,C115,faculty dean office
+location,C115,dean
+location,C114,secretary
+location,C114,dean secretary
+location,C112,set office
+location,C112,software engineering staff room
+location,C111,set ta office
+location,C111,software engineering ta office
+location,C110,cbe office
+location,C110,civil engineering staff room
+location,C113,mct office
+location,C113,mechatronics staff room
+location,C106,erg office
+location,C106,renewable energy staff room
+location,C109,ta office
+location,C109,teaching assistants
+location,C101,vice dean office
+location,C101,student affairs office
+location,C102,general secretary office
+location,C104,vice dean
+department,SET,software engineering
+department,SET,set
+department,SET,software engineering department
+department,CBE,civil engineering
+department,CBE,cbe
+department,CBE,civil engineering department
+department,MCT,mechatronics
+department,MCT,mct
+department,MCT,mechatronics engineering department
+department,ERG,renewable energy
+department,ERG,erg
+department,ERG,renewable energy engineering department
+facility,LAVATORY_1,bathroom
+facility,LAVATORY_1,restroom
+facility,LAVATORY_1,toilet
+facility,LAVATORY_1,wc
+facility,LAVATORY_2,bathroom upstairs
+facility,LAVATORY_2,restroom upstairs
+facility,CHARGING_STATION,charging station
+facility,CHARGING_STATION,phone charging
+staff,Dr. Islam Mohamed,Islam Mohamed
+staff,Dr. Myar Ali,Myar Ali
+staff,Dr. Cherry Aly,Cherry Aly
+staff,Dr. Fatima Sakr,Fatima Sakr
+staff,Dr. Amr Ibrahim,Amr Ibrahim
+staff,Dr. Doaa Mabrouk,Doaa Mabrouk
+staff,Dr. Ibrahim Diaaeldin,Ibrahim Diaaeldin
+staff,Dr. Ola Mayhoub,Ola Mayhoub
+staff,Dr. Abanoub Shenouda,Abanoub Shenouda
+staff,Dr. Ahmed Abd-Elkhaled,Ahmed Abd-Elkhaled
+staff,Dr. Ashraf Mohamed,Ashraf Mohamed
+staff,Dr. Mohamed Salah,Mohamed Salah
+staff,Dr. Hussein Elsayed,Hussein Elsayed
+staff,Dr. Emad Abd-Elhafiez,Emad Abd-Elhafiez
+staff,Dr. Milad Samir,Milad Samir
+staff,Dr. Ehab Nossier,Ehab Nossier
+staff,Dr. Sara El-Shatalawy,Sara El-Shatalawy
+staff,Dr. Hussein Waly,Hussein Waly
+staff,Dr. Shady Abd-Elnasser,Shady Abd-Elnasser
+staff,Dr. Kadry Ali Ezzat,Kadry Ali Ezzat
+staff,Dr. Reham Abobeah,Reham Abobeah
+staff,Dr. Mohamed Youssef,Mohamed Youssef
+staff,Dr. Ahmed Osman,Ahmed Osman
+staff,Dr. Mohamed Elsayed Mostafa,Mohamed Elsayed Mostafa
+staff,Dr. Soliman Mabrouk,Soliman Mabrouk
+staff,Dr. Mohamed Nabil,Mohamed Nabil
+staff,Dr. Mohamed Ismail,Mohamed Ismail
+staff,Dr. Youssef Attay,Youssef Attay
+staff,Dr. Sabah Saad,Sabah Saad
+staff,Mohamed Hany,Mohamed Hany
+staff,Norhan Mamdoh,Norhan Mamdoh
+staff,Abdulrahman Gaber,Abdulrahman Gaber
+staff,Maiada Alaa Eldin Ali,Maiada Alaa Eldin Ali
+staff,Ahmed Samir,Ahmed Samir
+staff,Doaa Amin,Doaa Amin
+staff,Hagar Rabea,Hagar Rabea
+staff,Mohamed Khatab,Mohamed Khatab
+staff,Hussain Mohamed,Hussain Mohamed
+staff,Asmaa Elboghdady,Asmaa Elboghdady
+staff,Yara Afifi,Yara Afifi
+staff,Fady Romany,Fady Romany
+staff,Tahia Ahmed,Tahia Ahmed
+staff,Yasmeen Magdy,Yasmeen Magdy
+staff,Nada Oda,Nada Oda
+staff,Rawan Sultan,Rawan Sultan
+staff,Menna Salah,Menna Salah
+staff,Youmna Basset,Youmna Basset
+staff,Peter Talat,Peter Talat
+staff,Ahmed Tamer,Ahmed Tamer
+staff,Kerolos Samy,Kerolos Samy
+staff,Hager Mohamed Hosnii,Hager Mohamed Hosnii
+staff,Noah Khalaf,Noah Khalaf
+staff,Nada Omar,Nada Omar
+staff,Bishoy Samuel,Bishoy Samuel
+staff,Mohamed Maged,Mohamed Maged
+staff,Gannah Ghamery,Gannah Ghamery
+staff,Nada Ayman Farouk,Nada Ayman Farouk
+staff,Veronia Medhat,Veronia Medhat
+staff,Tasneem Ahmed Hassan,Tasneem Ahmed Hassan
+staff,Ziad HossamAldin AbdAlsamie,Ziad HossamAldin AbdAlsamie
+staff,Dina Zaki,Dina Zaki
+staff,Omar Ashraf,Omar Ashraf
+location,C111,set teaching assistants
+location,C111,teaching assistants office
+location,C109,cbe teaching assistants
+location,C203,mct teaching assistants
+location,C204,engineering teaching assistants
+location,C101,c101
+location,C102,c102
+location,C103,c103
+location,C104,c104
+location,C105,c105
+location,C106,c106
+location,C107,c107
+location,C108,c108
+location,C109,c109
+location,C110,c110
+location,C111,c111
+location,C112,c112
+location,C113,c113
+location,C114,c114
+location,C115,c115
+location,C201,c201
+location,C202,c202
+location,C203,c203
+location,C204,c204
+location,C205,c205
+location,C206,c206
+location,C207,c207
+location,C208,c208
+location,C209,c209
+location,C210,c210
+location,C211,c211
+location,C212,c212
+location,C213,c213
+location,C214,c214
+location,C101,C101
+location,C102,C102
+location,C103,C103
+location,C104,C104
+location,C105,C105
+location,C106,C106
+location,C107,C107
+location,C108,C108
+location,C109,C109
+location,C110,C110
+location,C111,C111
+location,C112,C112
+location,C113,C113
+location,C114,C114
+location,C115,C115
+location,C201,C201
+location,C202,C202
+location,C203,C203
+location,C204,C204
+location,C205,C205
+location,C206,C206
+location,C207,C207
+location,C208,C208
+location,C209,C209
+location,C210,C210
+location,C211,C211
+location,C212,C212
+location,C213,C213
+location,C214,C214

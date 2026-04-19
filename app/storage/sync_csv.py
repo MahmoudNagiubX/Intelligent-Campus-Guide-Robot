@@ -87,13 +87,20 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
     "staff":        ["full_name"],
     "office_hours": ["staff_full_name", "weekday", "start_time", "end_time"],
     "facilities":   ["code", "name"],
-    "aliases":      ["canonical_type", "canonical_id", "alias_text"],
-    "navigation_targets": ["target_type", "canonical_id", "nav_code"],
+    "aliases":      ["canonical_type", "canonical_code", "alias_text"],
+    "navigation_targets": ["target_type", "canonical_code", "nav_code"],
 }
 _NAV_TARGET_TABLES = {
     "location": "locations",
     "department": "departments",
     "facility": "facilities",
+}
+# Maps entity type -> (table, key column) for code-based lookups
+_ENTITY_CODE_TABLES: dict[str, tuple[str, str]] = {
+    "location":   ("locations",   "code"),
+    "department": ("departments", "code"),
+    "facility":   ("facilities",  "code"),
+    "staff":      ("staff",       "full_name"),
 }
 
 
@@ -328,7 +335,24 @@ def _sync_aliases(conn: sqlite3.Connection, rows: list[dict], source: str) -> tu
             alias_text = normalize(row["alias_text"])
             normalized_alias = normalize_for_search(alias_text)
             canonical_type = normalize(row["canonical_type"])
-            canonical_id = int(row["canonical_id"])
+            canonical_code = str_or_none(row.get("canonical_code"))
+
+            entity_info = _ENTITY_CODE_TABLES.get(canonical_type)
+            if not entity_info:
+                logger.warning("csv_invalid_canonical_type", source=source, line=i, canonical_type=canonical_type)
+                skipped += 1
+                continue
+
+            table, key_col = entity_info
+            r = conn.execute(
+                f"SELECT id FROM {table} WHERE {key_col}=?;", (canonical_code,)
+            ).fetchone()
+            if not r:
+                logger.warning("csv_alias_entity_not_found", source=source, line=i,
+                               canonical_type=canonical_type, canonical_code=canonical_code)
+                skipped += 1
+                continue
+            canonical_id = r["id"]
 
             existing = conn.execute(
                 "SELECT id FROM aliases WHERE canonical_type=? AND canonical_id=? AND normalized_alias=?;",
@@ -365,21 +389,26 @@ def _sync_navigation_targets(
                 skipped += 1
                 continue
 
-            canonical_id = int(row["canonical_id"])
-            target_exists = conn.execute(
-                f"SELECT id FROM {_NAV_TARGET_TABLES[target_type]} WHERE id=?;",
-                (canonical_id,),
+            canonical_code = str_or_none(row.get("canonical_code"))
+            if not canonical_code:
+                skipped += 1
+                continue
+
+            target_row = conn.execute(
+                f"SELECT id FROM {_NAV_TARGET_TABLES[target_type]} WHERE code=?;",
+                (canonical_code,),
             ).fetchone()
-            if not target_exists:
+            if not target_row:
                 logger.warning(
                     "csv_navigation_target_missing_canonical",
                     source=source,
                     line=i,
                     target_type=target_type,
-                    canonical_id=canonical_id,
+                    canonical_code=canonical_code,
                 )
                 skipped += 1
                 continue
+            canonical_id = target_row["id"]
 
             nav_code = normalize(row["nav_code"])
             safety_notes = str_or_none(row.get("safety_notes"))

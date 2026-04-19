@@ -1,9 +1,63 @@
 full_name,title,department_code,office_location_code,contact_notes
-Dr. Mohamed Hassan,Professor and Department Head,CS_DEPT,CS_DEPT_OFF,Available by appointment
-Dr. Sara Ali,Associate Professor and Department Head,SE_DEPT,SE_DEPT_OFF,Office hours posted on door
-Dr. Khaled Nasser,Professor,EE_DEPT,,Contact via email
-Dr. Layla Ibrahim,Professor and Department Head,AI_DEPT,AI_DEPT_OFF,Research group meetings Thursdays
-Dr. Ahmed Samy,Assistant Professor,SE_DEPT,SE_DEPT_OFF,Available Sunday and Tuesday
-Dr. Nour El-Din,Lecturer,CS_DEPT,CS_DEPT_OFF,Available Monday and Wednesday
-Ms. Dina Mostafa,Administration Manager,ADMIN,ADMIN_OFF,Walk-in welcome during office hours
-Dr. Hana Farouk,Assistant Professor,AI_DEPT,AI_DEPT_OFF,NLP and AI research group
+Dr. Islam Mohamed,Professor,SET,C112,Available
+Dr. Myar Ali,Professor,SET,C112,Available
+Dr. Cherry Aly,Professor,SET,C112,Unavailable
+Dr. Fatima Sakr,Professor,SET,C113,Available
+Dr. Amr Ibrahim,Professor,SET,C113,Unavailable
+Dr. Doaa Mabrouk,Professor,SET,C112,Available
+Dr. Ibrahim Diaaeldin,Professor,CBE,C205,Unavailable
+Dr. Ola Mayhoub,Professor,CBE,C110,Available
+Dr. Abanoub Shenouda,Professor,CBE,C110,Available
+Dr. Ahmed Abd-Elkhaled,Professor,CBE,C110,Available
+Dr. Ashraf Mohamed,Professor,CBE,C109,Available
+Dr. Mohamed Salah,Professor,SET,C205,Unavailable
+Dr. Hussein Elsayed,Professor,CBE,C205,Unavailable
+Dr. Emad Abd-Elhafiez,Professor,CBE,C205,Available
+Dr. Milad Samir,Professor,ERG,C106,Available
+Dr. Ehab Nossier,Professor,CBE,C110,Available
+Dr. Sara El-Shatalawy,Professor,ERG,C106,Unavailable
+Dr. Hussein Waly,Professor,ERG,C106,Unavailable
+Dr. Shady Abd-Elnasser,Professor,CBE,C109,Unavailable
+Dr. Kadry Ali Ezzat,Professor,SET,C112,Unavailable
+Dr. Reham Abobeah,Professor,SET,C210,Unavailable
+Dr. Mohamed Youssef,Professor,ERG,C106,Unavailable
+Dr. Ahmed Osman,Professor,SET,C112,Available
+Dr. Mohamed Elsayed Mostafa,Professor,ERG,C106,Available
+Dr. Soliman Mabrouk,Professor,SET,C113,Unavailable
+Dr. Mohamed Nabil,Professor,MCT,C205,Available
+Dr. Mohamed Ismail,Professor,MCT,C102,Available
+Dr. Youssef Attay,Professor,MCT,C202,Available
+Dr. Sabah Saad,Professor,SET,C112,Unavailable
+Mohamed Hany,TA,SET,C111,Available
+Norhan Mamdoh,TA,SET,C111,Available
+Abdulrahman Gaber,TA,SET,C112,Available
+Maiada Alaa Eldin Ali,TA,SET,C111,Available
+Ahmed Samir,TA,SET,C111,Unavailable
+Doaa Amin,TA,SET,C111,Available
+Hagar Rabea,TA,SET,C111,Unavailable
+Mohamed Khatab,TA,SET,C112,Unavailable
+Hussain Mohamed,TA,SET,C112,Unavailable
+Asmaa Elboghdady,TA,SET,C111,Available
+Yara Afifi,TA,SET,C111,Available
+Fady Romany,TA,SET,C112,Available
+Tahia Ahmed,TA,SET,C111,Available
+Yasmeen Magdy,TA,CBE,C109,Available
+Nada Oda,TA,CBE,C109,Available
+Rawan Sultan,TA,CBE,C109,Available
+Menna Salah,TA,CBE,C109,Available
+Youmna Basset,TA,CBE,C109,Available
+Peter Talat,TA,CBE,C109,Available
+Ahmed Tamer,TA,CBE,C109,Available
+Kerolos Samy,TA,MCT,C203,Available
+Hager Mohamed Hosnii,TA,MCT,C204,Available
+Noah Khalaf,TA,MCT,C205,Available
+Nada Omar,TA,MCT,C206,Available
+Bishoy Samuel,TA,MCT,C207,Available
+Mohamed Maged,TA,MCT,C208,Available
+Gannah Ghamery,TA,MCT,C209,Available
+Nada Ayman Farouk,TA,MCT,C210,Available
+Veronia Medhat,TA,MCT,C211,Available
+Tasneem Ahmed Hassan,TA,MCT,C212,Available
+Ziad HossamAldin AbdAlsamie,TA,MCT,C213,Available
+Dina Zaki,TA,MCT,C214,Available
+Omar Ashraf,TA,MCT,C215,Available
