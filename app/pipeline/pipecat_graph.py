@@ -754,20 +754,17 @@ class NavigatorPipecatRuntime:
             source="playback",
             message="no_audio_available_for_playback",
         )
-        self._session_manager.reset()
-        self._wakeword.set_session_active(False)
-        self._deepgram_adapter.disconnect()
-        self._deepgram_adapter.set_session_id(None)
-        self._tracer.record("session_ended", session_id=session_id, reason="empty_audio")
-
-    def _on_playback_complete(self) -> None:
-        session_id = self._session_manager.session_id or self._last_session_id
-        self._session_manager.on_playback_complete()
+        self._session_manager.end_session(reason="empty_audio")
         self._wakeword.set_session_active(False)
         self._deepgram_adapter.disconnect()
         self._deepgram_adapter.set_session_id(None)
         self._vad.reset()
-        self._tracer.record("session_ended", session_id=session_id, reason="playback_complete")
+        self._tracer.record("session_ended", session_id=session_id, reason="empty_audio")
+
+    def _on_playback_complete(self) -> None:
+        self._session_manager.on_playback_complete()
+        self._deepgram_adapter.disconnect()
+        self._vad.reset()
 
     def _on_session_timeout(self) -> None:
         session_id = self._last_session_id

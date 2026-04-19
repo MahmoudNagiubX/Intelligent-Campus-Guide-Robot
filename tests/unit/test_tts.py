@@ -10,11 +10,15 @@ Run with:
     pytest tests/unit/test_tts.py -v
 """
 
+import asyncio
+import sys
 import threading
 import time
+import types
 
 import pytest
 
+from app.config.settings import get_settings
 from app.tts.edge_tts_client import EdgeTTSClient, _build_silent_wav
 from app.tts.playback import PlaybackManager, PlaybackState
 
@@ -92,6 +96,44 @@ class TestEdgeTTSClient:
         wav = _build_silent_wav(200)
         assert wav[:4] == b"RIFF"
         assert len(wav) > 44  # minimum WAV header size
+
+    def test_rate_and_voice_can_be_configured_from_env(self, monkeypatch):
+        monkeypatch.setenv("EDGE_TTS_VOICE_EN", "en-GB-SoniaNeural")
+        monkeypatch.setenv("EDGE_TTS_VOICE_AR", "ar-SA-ZariyahNeural")
+        monkeypatch.setenv("EDGE_TTS_RATE", "-15%")
+        get_settings.cache_clear()
+        try:
+            client = EdgeTTSClient(mock=True)
+            assert client.voice_for("en") == "en-GB-SoniaNeural"
+            assert client.voice_for("ar-EG") == "ar-SA-ZariyahNeural"
+            assert client._rate == "-15%"
+        finally:
+            get_settings.cache_clear()
+
+    def test_edge_tts_rate_is_passed_to_sdk(self, monkeypatch):
+        captured = {}
+
+        class FakeCommunicate:
+            def __init__(self, *, text, voice, rate):
+                captured["text"] = text
+                captured["voice"] = voice
+                captured["rate"] = rate
+
+            async def stream(self):
+                yield {"type": "audio", "data": b"abc"}
+
+        monkeypatch.setenv("EDGE_TTS_RATE", "-12%")
+        get_settings.cache_clear()
+        monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=FakeCommunicate))
+        try:
+            client = EdgeTTSClient(mock=False)
+            result = asyncio.run(client.synthesize("Hello there", "en"))
+            assert result == b"abc"
+            assert captured["voice"] == client.voice_for("en")
+            assert captured["rate"] == "-12%"
+        finally:
+            get_settings.cache_clear()
+            sys.modules.pop("edge_tts", None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

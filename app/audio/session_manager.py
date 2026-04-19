@@ -21,7 +21,8 @@ Allowed transitions:
     LISTENING     -> IDLE          (timeout)
     PROCESSING    -> SPEAKING
     PROCESSING    -> IDLE          (unknown / no response)
-    SPEAKING      -> IDLE          (playback complete)
+    SPEAKING      -> LISTENING     (playback complete, follow-up window)
+    SPEAKING      -> IDLE          (session closed)
     SPEAKING      -> INTERRUPTED   (barge-in)
     INTERRUPTED   -> LISTENING     (resume after barge-in)
     ERROR         -> IDLE          (reset after error)
@@ -47,7 +48,7 @@ _ALLOWED_TRANSITIONS: dict[SessionState, set[SessionState]] = {
     SessionState.WAKE_DETECTED: {SessionState.LISTENING, SessionState.ERROR},
     SessionState.LISTENING:     {SessionState.PROCESSING, SessionState.IDLE, SessionState.ERROR},
     SessionState.PROCESSING:    {SessionState.SPEAKING, SessionState.IDLE, SessionState.ERROR},
-    SessionState.SPEAKING:      {SessionState.IDLE, SessionState.INTERRUPTED, SessionState.ERROR},
+    SessionState.SPEAKING:      {SessionState.LISTENING, SessionState.IDLE, SessionState.INTERRUPTED, SessionState.ERROR},
     SessionState.INTERRUPTED:   {SessionState.LISTENING, SessionState.IDLE, SessionState.ERROR},
     SessionState.ERROR:         {SessionState.IDLE},
 }
@@ -131,6 +132,18 @@ class SessionManager:
             self._session_id = None
             logger.info("session_reset", from_state=old.value)
 
+    def end_session(self, reason: str = "completed") -> None:
+        """Close the current session and return to idle wake-word mode."""
+        with self._lock:
+            old = self._state
+            session_id = self._session_id
+            self._cancel_timer()
+            self._state = SessionState.IDLE
+            self._session_id = None
+
+        logger.info("session_ended", from_state=old.value, reason=reason, session_id=session_id)
+        logger.info("returned_to_idle", reason=reason, session_id=session_id)
+
     # ── State helpers ─────────────────────────────────────────────────────────
 
     def on_wake_detected(self) -> None:
@@ -161,10 +174,9 @@ class SessionManager:
         self.transition(SessionState.SPEAKING)
 
     def on_playback_complete(self) -> None:
-        """Called when TTS finishes speaking."""
-        self.transition(SessionState.IDLE)
-        with self._lock:
-            self._session_id = None
+        """Called when TTS finishes speaking and we reopen the follow-up window."""
+        self.transition(SessionState.LISTENING)
+        self.start_timeout_timer()
 
     def on_barge_in(self) -> None:
         """Called when user speaks during TTS — barge-in fires."""
@@ -219,11 +231,9 @@ class SessionManager:
         """Called by the timer thread when the session times out."""
         with self._lock:
             current = self._state
-        if current in (SessionState.LISTENING, SessionState.WAKE_DETECTED):
+        if current == SessionState.LISTENING:
             logger.info("session_timeout", state=current.value, session_id=self._session_id)
-            self.transition(SessionState.IDLE)
-            with self._lock:
-                self._session_id = None
+            self.end_session(reason="timeout")
             if self._on_timeout:
                 try:
                     self._on_timeout()

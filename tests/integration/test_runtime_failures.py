@@ -33,7 +33,7 @@ class SilentTTS:
 
 @pytest.mark.asyncio
 async def test_groq_timeout_falls_back_to_grounded_facts(monkeypatch, tmp_path):
-    configure_test_settings(monkeypatch, tmp_path)
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
     router_groq = make_router_mock(
@@ -91,7 +91,7 @@ async def test_tts_failure_records_error_and_resets_session(monkeypatch, tmp_pat
 
 @pytest.mark.asyncio
 async def test_db_failure_returns_safe_response(monkeypatch, tmp_path):
-    configure_test_settings(monkeypatch, tmp_path)
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
     router_groq = make_router_mock(
@@ -122,7 +122,7 @@ async def test_db_failure_returns_safe_response(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_retrieval_not_found_returns_safe_bounded_answer(monkeypatch, tmp_path):
-    configure_test_settings(monkeypatch, tmp_path)
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
     router_groq = make_router_mock(

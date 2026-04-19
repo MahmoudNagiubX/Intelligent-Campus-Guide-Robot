@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     wake_word_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="Activation confidence threshold")
 
     # ── Session ───────────────────────────────────────────────────────────────
-    session_timeout_sec: int = Field(default=15, gt=0, description="Seconds of silence before session closes")
+    session_timeout_sec: int = Field(default=10, gt=0, description="Seconds of silence before session closes")
 
     # ── Storage ───────────────────────────────────────────────────────────────
     sqlite_db_path: str = Field(default="./data/sqlite/navigator.db", description="Path to the SQLite database file")
@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # ── TTS Voices ────────────────────────────────────────────────────────────
     edge_tts_voice_ar: str = Field(default="ar-EG-SalmaNeural", description="Arabic Egyptian TTS voice")
     edge_tts_voice_en: str = Field(default="en-US-JennyNeural", description="English TTS voice")
+    edge_tts_rate: str = Field(default="-10%", description="Speech rate passed to edge-tts, for example -10% or +5%")
     default_language: str = Field(default="en", description="Fallback language code when detection is uncertain")
 
     # ── Groq LLM ──────────────────────────────────────────────────────────────

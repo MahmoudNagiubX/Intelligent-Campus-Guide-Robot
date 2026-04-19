@@ -266,12 +266,19 @@ class TestSessionManager:
         sm.on_response_ready()
         assert sm.state == SessionState.SPEAKING
 
-    def test_playback_complete_returns_to_idle(self):
+    def test_playback_complete_reopens_followup_window(self):
         sm = self._make_sm()
         sm.on_wake_detected()
         sm.on_speech_end()
         sm.on_response_ready()
         sm.on_playback_complete()
+        assert sm.state == SessionState.LISTENING
+        assert sm.session_id is not None
+
+    def test_end_session_returns_to_idle(self):
+        sm = self._make_sm()
+        sm.on_wake_detected()
+        sm.end_session("test")
         assert sm.state == SessionState.IDLE
         assert sm.session_id is None
 
@@ -327,6 +334,9 @@ class TestSessionManager:
         sm.on_speech_end()
         sm.on_response_ready()
         sm.on_playback_complete()
+        sm.end_session("test_complete")
         sm.on_wake_detected()
+        sm.on_speech_end()
+        sm.on_response_ready()
         sm.on_barge_in()
         assert sm.state == SessionState.LISTENING

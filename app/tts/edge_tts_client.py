@@ -63,12 +63,14 @@ class EdgeTTSClient:
         cfg = get_settings()
         self._voice_en = cfg.edge_tts_voice_en    # "en-US-JennyNeural"
         self._voice_ar = cfg.edge_tts_voice_ar    # "ar-EG-SalmaNeural"
+        self._rate = cfg.edge_tts_rate
         self._mock     = mock
 
         logger.info(
             "tts_client_init",
             voice_en=self._voice_en,
             voice_ar=self._voice_ar,
+            rate=self._rate,
             mock=self._mock,
         )
 
@@ -95,7 +97,13 @@ class EdgeTTSClient:
             return b""
 
         voice = self.voice_for(language)
-        logger.info("tts_synthesize", voice=voice, text_preview=text[:60], language=language)
+        logger.info(
+            "tts_synthesize",
+            voice=voice,
+            rate=self._rate,
+            text_preview=text[:60],
+            language=language,
+        )
 
         if self._mock:
             logger.debug("tts_mock_synthesis")
@@ -103,7 +111,7 @@ class EdgeTTSClient:
 
         try:
             import edge_tts  # type: ignore
-            communicate = edge_tts.Communicate(text=text, voice=voice)
+            communicate = edge_tts.Communicate(text=text, voice=voice, rate=self._rate)
             audio_buf = io.BytesIO()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":

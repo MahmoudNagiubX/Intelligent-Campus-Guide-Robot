@@ -35,7 +35,7 @@ def test_csv_sync_into_sqlite(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_final_transcript_routes_through_campus_pipeline(monkeypatch, tmp_path):
-    configure_test_settings(monkeypatch, tmp_path)
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
     router_groq = make_router_mock(
@@ -81,7 +81,7 @@ async def test_final_transcript_routes_through_campus_pipeline(monkeypatch, tmp_
 
 @pytest.mark.asyncio
 async def test_navigation_request_emits_action_payload(monkeypatch, tmp_path):
-    configure_test_settings(monkeypatch, tmp_path)
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
     router_groq = make_router_mock(
