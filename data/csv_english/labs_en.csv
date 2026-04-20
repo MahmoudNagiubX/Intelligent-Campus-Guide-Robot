@@ -1,0 +1,22 @@
+lab_id,lab_name,building_id,floor_id,room_id,supervisor_staff_id,status
+1,Theory of mechanics,C,1,C103,1,Closed
+1,CNC,C,1,C103,1,Closed
+1,Stress Lab,C,1,C103,1,Closed
+2,Robotics and Machine Vision,C,1,C105,1,Closed
+2, Automatic Control,C,1,C105,1,Closed
+2,Prototyping,C,1,C105,1,Closed
+2,Festo Pneumonics and Hydrolics Lab,C,1,C105,1,Closed
+3,Digital Design and Microcontrollers,C,1,C107,1,Closed
+3, Introduction to Mechatronics,C,1,C107,1,Closed
+3,Industrial Networks and Embedded Systems Lab,C,1,C107,1,Closed
+4,Fluid Mechatronics lab,C,1,C108,1,Closed
+5,Power Electronics,C,2,C207,2,Closed
+5,Motor Drives,C,2,C207,2,Closed
+5, Electric and Electronic Measurements,C,2,C207,2,Closed
+5,Signals and Systems ,C,2,C207,2,Closed
+5,Electric and Electronic Circuits Lab,C,2,C207,2,Closed
+6,Thermodynamics,C,2,C208,2,Closed
+6,Heat Transfer Lab,C,2,C208,2,Closed
+7,PLC,C,2,C211,2,Closed
+7,Mechatronics Measurement,C,2,C211,2,Closed
+7,Machine Design Lab,C,2,C211,2,Closed

@@ -1,0 +1,5 @@
+landmark_id,building_id,floor_id,landmark_name,description
+1,C,1 -2,Stairwell 1,Lefthand stairwell near the entrance
+2,C,1-2,Stairwell 2,"Righthand stairwell at the back of the building near C209, C208"
+3,C,1,Charging station,Phone charging station between in the leftside hallway between C110 and C111
+4,C,1,Pathway,Path connecting the leftside and rightside hallway at the middle

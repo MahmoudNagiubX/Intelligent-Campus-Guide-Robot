@@ -1,0 +1,5 @@
+department_id,department_name,building_id,floor_id,office_room_id,head_office_room_id
+SET,Software Engineering Department,C,1,C111,C112
+CBE,Civil Engineering Department,C,1,C109,C110
+MCT,Mechatronics Engineering Department,C,1-2,C203,C113
+ERG,Renewable Energy Engineering Department,C,1-2,C204,C106

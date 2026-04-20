@@ -1,0 +1,46 @@
+building_id,floor_id,room_name,room_type,room_number
+A,1,Robotics Lab,Lab,C105
+C,1,Prototyping,Lab,C105
+C,1,Automatic Control,Lab,C105
+C,1,Machine Vision,Lab,C105
+C,1,Festo Pneumonics and Hydrolics ,Lab,C105
+C,1,Theory of Mechanics,Lab,C103
+C,1,CNC,Lab,C103
+C,1,Stress Lab,Lab,C103
+C,1,Digital Design and Microcontrollers,Lab,C107
+C,1, Introduction to Mechatronics,Lab,C107
+C,1,Industrial Networks and Embedded Systems,Lab,C107
+C,1,Fluid Mechanics,Lab,C108
+C,1,Vice Dean for Student Affairs,Office,C101
+C,1,College General Secretary,Office,C102
+C,1,Vice dean,Office,C104
+C,1,ERG staff,Office,C106
+C,1,Teaching Assistants,Office,C109
+C,1,CBE staff,Office,C110
+C,1,Software Engineering Teaching Assistants,Office,C111
+C,1,SET staff,Office,C112
+C,1,MCT staff,Office,C113
+C,1,Dean secretary,Office,C114
+C,1,Faculty dean,Office,C115
+C,1,Data center,Administration,C201
+C,2,IT,Administration,C202
+C,2,Teaching assistants,Office,C203
+C,2,Engineering Teaching Assistants,Office,C204
+C,2,Staff Room,Office,C205
+C,2,Chinese Faculty room,Office,C206
+C,2,Power Electronics,Lab,C207
+C,2,Motor Drives,Lab,C207
+C,2, Electric and Electronic Measurements,Lab,C207
+C,2,Signals and Systems,Lab,C207
+C,2, Electric and Electronic Circuits,Lab,C207
+C,2,Thermodynamics,Lab,C208
+C,2,Heat Transfer Lab,Lab,C208
+C,2,Quality control,Administration,C209
+C,2,Staff Room,Office,C210
+C,2,PLC,Lab,C211
+C,2, Mechatronics Measurement ,Lab,C211
+C,2,Machine Design Lab,Lab,C211
+C,2,Staff Room,Office,C212
+C,2,Control,Administration,C213
+C,2,Control,Administration,C214
+C,2,,,
