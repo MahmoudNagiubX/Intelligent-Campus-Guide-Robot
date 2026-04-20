@@ -641,11 +641,22 @@ class NavigatorPipecatRuntime:
         """Public helper for tests and manual runtime control."""
         self._wakeword.trigger()
 
-    def inject_mock_transcript(self, text: str, *, is_final: bool = True, language: str = "en") -> None:
+    def inject_mock_transcript(
+        self,
+        text: str,
+        *,
+        is_final: bool = True,
+        language: str = "en",
+        language_confidence: float | None = None,
+    ) -> None:
         """Inject a mock transcript through the wrapped STT client."""
-        self._stt_client._language = language  # type: ignore[attr-defined]
         self._deepgram_adapter.set_session_id(self._session_manager.session_id or self._last_session_id)
-        self._stt_client.inject_mock_transcript(text, is_final=is_final)
+        self._stt_client.inject_mock_transcript(
+            text,
+            is_final=is_final,
+            language=language,
+            language_confidence=language_confidence,
+        )
 
     def process_audio_frame(self, frame: bytes) -> None:
         """Feed one microphone frame into the live session state machine."""

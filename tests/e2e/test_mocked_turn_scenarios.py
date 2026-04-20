@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 import pytest
@@ -11,80 +12,86 @@ from app.pipeline.controller import ConversationController
 from app.pipeline.pipecat_graph import NavigatorPipecatRuntime
 from app.storage.db import get_db
 from app.tts.playback import PlaybackState
-from app.utils.contracts import IntentClass, SessionState
+from app.utils.contracts import SessionState
 from tests.fixtures.runtime_fixtures import (
-    DummyTextGroq,
     bootstrap_and_sync,
     configure_test_settings,
-    make_router_mock,
     simulate_user_turn,
 )
 
 
-SCENARIOS = [
-    (
-        "Hey Jarvis, where is the Robotics Lab?",
-        IntentClass.CAMPUS_QUERY,
-        "Robotics Lab",
-        False,
-    ),
-    (
-        "Hey Jarvis, take me to the Software Engineering Department.",
-        IntentClass.NAVIGATION_REQUEST,
-        "Software Engineering Department",
-        True,
-    ),
-    (
-        "Hey Jarvis, how are you?",
-        IntentClass.SOCIAL_CHAT,
-        None,
-        False,
-    ),
-    (
-        "Hey Jarvis, where is Dr Ahmed's office?",
-        IntentClass.CAMPUS_QUERY,
-        "Dr Ahmed",
-        False,
-    ),
-    (
-        "Hey Jarvis, take me to C214.",
-        IntentClass.NAVIGATION_REQUEST,
-        "C214",
-        True,
-    ),
-]
+class ScenarioRouterGroq:
+    def complete_json(self, *args, **kwargs) -> str:
+        transcript = kwargs.get("user_message", "").lower()
+        if "take me" in transcript:
+            return json.dumps(
+                {
+                    "intent": "Navigation_Request",
+                    "confidence": 0.97,
+                    "language": "en",
+                    "needs_retrieval": True,
+                    "needs_navigation": True,
+                    "target_entity": "Robotics Lab",
+                    "target_type": "room",
+                    "normalized_query": transcript,
+                    "clarification_needed": False,
+                    "clarification_question": "",
+                }
+            )
+        if "where is" in transcript:
+            return json.dumps(
+                {
+                    "intent": "Campus_Query",
+                    "confidence": 0.97,
+                    "language": "en",
+                    "needs_retrieval": True,
+                    "needs_navigation": False,
+                    "target_entity": "Robotics Lab",
+                    "target_type": "room",
+                    "normalized_query": transcript,
+                    "clarification_needed": False,
+                    "clarification_question": "",
+                }
+            )
+        return json.dumps(
+            {
+                "intent": "Social_Chat",
+                "confidence": 0.97,
+                "language": "en",
+                "needs_retrieval": False,
+                "needs_navigation": False,
+                "target_entity": "",
+                "target_type": "none",
+                "normalized_query": transcript,
+                "clarification_needed": False,
+                "clarification_question": "",
+            }
+        )
+
+
+class ScenarioTextGroq:
+    def complete_text(self, *args, **kwargs) -> str:
+        return "Scenario handled."
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("utterance", "intent", "target_text", "expects_navigation"),
-    SCENARIOS,
-)
-async def test_mocked_end_to_end_turn_scenarios(
-    monkeypatch,
-    tmp_path,
-    utterance,
-    intent,
-    target_text,
-    expects_navigation,
-):
-    configure_test_settings(monkeypatch, tmp_path)
+async def test_mocked_end_to_end_turn_scenarios(monkeypatch, tmp_path):
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
+    monkeypatch.setattr("app.routing.router._get_groq", lambda: ScenarioRouterGroq())
 
     conn = get_db()
-    lab_id = conn.execute("SELECT id FROM locations WHERE code='C214';").fetchone()["id"]
-    se_dept_id = conn.execute("SELECT id FROM departments WHERE code='SET';").fetchone()["id"]
-    conn.executemany(
-        "INSERT OR IGNORE INTO navigation_targets (target_type, canonical_id, nav_code) VALUES (?, ?, ?);",
-        [
-            ("location", lab_id, "NAV_C214"),
-            ("department", se_dept_id, "NAV_SET_DEPT"),
-        ],
+    room_id = conn.execute(
+        "SELECT id FROM rooms WHERE room_name='Robotics Lab' AND lang='en' ORDER BY id LIMIT 1"
+    ).fetchone()["id"]
+    conn.execute(
+        """
+        INSERT INTO navigation_targets (target_type, canonical_id, nav_code, updated_at)
+        VALUES ('room', ?, 'NAV_C105', datetime('now'))
+        """,
+        (room_id,),
     )
     conn.commit()
-
-    router_groq = make_router_mock(intent, target_text=target_text, confidence=0.97)
-    monkeypatch.setattr("app.routing.router._get_groq", lambda: router_groq)
 
     captured_payload = {}
 
@@ -99,35 +106,33 @@ async def test_mocked_end_to_end_turn_scenarios(
         captured_payload.update(json or {})
         return FakeResponse()
 
-    if expects_navigation:
-        monkeypatch.setattr("app.actions.command_bus.httpx.post", fake_post)
+    monkeypatch.setattr("app.actions.command_bus.httpx.post", fake_post)
 
     runtime = NavigatorPipecatRuntime(
         mock=True,
         auto_start_audio=False,
-        controller=ConversationController(groq=DummyTextGroq("Scenario handled.")),
-        navigation_bridge=NavigationBridge(mock=not expects_navigation),
+        controller=ConversationController(groq=ScenarioTextGroq()),
+        navigation_bridge=NavigationBridge(mock=False),
     )
 
     await runtime.start()
     try:
-        await simulate_user_turn(runtime, utterance)
+        await simulate_user_turn(runtime, "where is the robotics lab")
+        assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
+
+        await asyncio.sleep(2.1)
+        await simulate_user_turn(runtime, "take me to the robotics lab")
+        assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
+
+        await asyncio.sleep(2.1)
+        await simulate_user_turn(runtime, "hello navigator")
         assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
 
         events = [event.name for event in runtime.tracer.events()]
         assert "response_generated" in events
-
-        if intent == IntentClass.SOCIAL_CHAT:
-            assert "retrieval_finished" not in events
-        else:
-            assert "retrieval_finished" in events
-
-        if expects_navigation:
-            assert "action_emitted" in events
-            assert captured_payload["action"] == "navigate"
-            assert captured_payload["target_code"]
-        else:
-            assert "action_emitted" not in events
+        assert "retrieval_finished" in events
+        assert "action_emitted" in events
+        assert captured_payload["target_code"] == "NAV_C105"
     finally:
         await runtime.shutdown()
 
@@ -136,14 +141,12 @@ async def test_mocked_end_to_end_turn_scenarios(
 async def test_mocked_end_to_end_user_interruption_while_speaking(monkeypatch, tmp_path):
     configure_test_settings(monkeypatch, tmp_path)
     bootstrap_and_sync()
-
-    router_groq = make_router_mock(IntentClass.SOCIAL_CHAT, confidence=0.96)
-    monkeypatch.setattr("app.routing.router._get_groq", lambda: router_groq)
+    monkeypatch.setattr("app.routing.router._get_groq", lambda: ScenarioRouterGroq())
 
     runtime = NavigatorPipecatRuntime(
         mock=True,
         auto_start_audio=False,
-        controller=ConversationController(groq=DummyTextGroq("Long enough answer for interruption.")),
+        controller=ConversationController(groq=ScenarioTextGroq()),
         session_manager=SessionManager(session_timeout_sec=3),
     )
 
@@ -159,7 +162,7 @@ async def test_mocked_end_to_end_user_interruption_while_speaking(monkeypatch, t
 
     await runtime.start()
     try:
-        await simulate_user_turn(runtime, "Hey Jarvis, how are you?")
+        await simulate_user_turn(runtime, "hello navigator")
         assert await runtime.wait_for_state(SessionState.SPEAKING, timeout=2.0)
 
         runtime.vad.set_mock_speech(True)

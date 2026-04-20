@@ -34,7 +34,10 @@ def configure_test_settings(monkeypatch, tmp_path, *, session_timeout: int = 5) 
 
     db_path = tmp_path / "navigator_test.db"
     monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
-    monkeypatch.setenv("CSV_DATA_DIR", str(REPO_ROOT / "data" / "csv"))
+    monkeypatch.setenv("CSV_DATA_DIR", str(REPO_ROOT / "data" / "csv_english"))
+    monkeypatch.setenv("CSV_ENGLISH_DIR", str(REPO_ROOT / "data" / "csv_english"))
+    monkeypatch.setenv("CSV_ARABIC_DIR", str(REPO_ROOT / "data" / "csv_arabic"))
+    monkeypatch.setenv("DEEPGRAM_LANGUAGE", "multi")
     monkeypatch.setenv("SESSION_TIMEOUT_SEC", str(session_timeout))
     get_settings.cache_clear()
     return db_path
@@ -71,7 +74,13 @@ def make_router_mock(
     return groq
 
 
-async def simulate_user_turn(runtime, transcript: str, *, language: str = "en") -> None:
+async def simulate_user_turn(
+    runtime,
+    transcript: str,
+    *,
+    language: str = "en",
+    language_confidence: float | None = 0.98,
+) -> None:
     """
     Simulate one spoken user turn through wake word, VAD boundaries, and STT.
 
@@ -90,7 +99,11 @@ async def simulate_user_turn(runtime, transcript: str, *, language: str = "en") 
         runtime.process_audio_frame(b"\x00" * 1024)
 
     await asyncio.sleep(0.05)
-    runtime.inject_mock_transcript(transcript, language=language)
+    runtime.inject_mock_transcript(
+        transcript,
+        language=language,
+        language_confidence=language_confidence,
+    )
     await asyncio.sleep(0.2)
 
 

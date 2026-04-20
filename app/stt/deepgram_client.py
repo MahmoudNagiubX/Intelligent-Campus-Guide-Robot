@@ -12,6 +12,7 @@ Behavior:
 - Fires on_final() for committed final transcripts (routing happens here)
 - Surfaces connection failures clearly in logs and callbacks
 - Deduplicates consecutive identical final transcripts
+- Enables Deepgram automatic language detection in live mode
 
 Policies:
 - Partial transcripts are NOT forwarded to the router
@@ -89,6 +90,7 @@ class DeepgramStreamingClient:
 
         self._api_key = cfg.deepgram_api_key
         self._language = language
+        self._deepgram_live_language = cfg.deepgram_language or language
         self._keyterms = keyterms or []
         self._mock = mock
         self._session_id = session_id
@@ -101,6 +103,8 @@ class DeepgramStreamingClient:
         self._last_final_text: Optional[str] = None
         self._pending_final_segments: list[str] = []
         self._pending_final_confidence = 0.0
+        self._pending_final_language: Optional[str] = None
+        self._pending_final_language_confidence: Optional[float] = None
         self._pending_audio: deque[bytes] = deque(maxlen=_PENDING_AUDIO_FRAMES_LIMIT)
         self._pending_audio_lock = threading.Lock()
         self._finalize_requested = False
@@ -119,6 +123,7 @@ class DeepgramStreamingClient:
         logger.info(
             "deepgram_client_init",
             language=self._language,
+            live_language=self._deepgram_live_language,
             keyterms_count=len(self._keyterms),
             keyterm_prompting_active=bool(self._keyterms),
             mock=self._mock,
@@ -288,7 +293,14 @@ class DeepgramStreamingClient:
             logger.error("deepgram_finalize_schedule_error", error=str(exc))
             self._notify_error("deepgram_finalize_schedule_error", str(exc))
 
-    def inject_mock_transcript(self, text: str, is_final: bool = True) -> None:
+    def inject_mock_transcript(
+        self,
+        text: str,
+        is_final: bool = True,
+        *,
+        language: Optional[str] = None,
+        language_confidence: Optional[float] = None,
+    ) -> None:
         """
         Inject a transcript event directly (mock mode only).
         Use this in tests to simulate STT output.
@@ -300,7 +312,8 @@ class DeepgramStreamingClient:
         event = TranscriptEvent(
             text=text,
             is_final=is_final,
-            language=self._language,
+            language=language or self._language,
+            language_confidence=language_confidence,
             confidence=0.95,
             session_id=self._session_id,
             source="deepgram_mock",
@@ -330,7 +343,7 @@ class DeepgramStreamingClient:
         """
         options = {
             "model": _DEEPGRAM_MODEL,
-            "language": self._language,
+            "language": self._deepgram_live_language,
             "encoding": _DEEPGRAM_ENCODING,
             "sample_rate": _DEEPGRAM_SAMPLE_RATE,
             "channels": _DEEPGRAM_CHANNELS,
@@ -714,6 +727,8 @@ class DeepgramStreamingClient:
             is_final = bool(getattr(result, "is_final", False))
             speech_final = bool(getattr(result, "speech_final", False))
             from_finalize = bool(getattr(result, "from_finalize", False))
+            detected_language = self._extract_detected_language(result, alt)
+            language_confidence = self._extract_language_confidence(result, alt)
 
             if not is_final:
                 if not text:
@@ -722,7 +737,8 @@ class DeepgramStreamingClient:
                 event = TranscriptEvent(
                     text=text,
                     is_final=False,
-                    language=self._language,
+                    language=detected_language,
+                    language_confidence=language_confidence,
                     confidence=confidence,
                     session_id=self._session_id,
                     source="deepgram",
@@ -731,7 +747,12 @@ class DeepgramStreamingClient:
                 return
 
             if text:
-                self._buffer_final_segment(text, confidence)
+                self._buffer_final_segment(
+                    text,
+                    confidence,
+                    detected_language=detected_language,
+                    language_confidence=language_confidence,
+                )
 
             if speech_final or from_finalize:
                 trigger = "speech_final" if speech_final else "from_finalize"
@@ -740,7 +761,14 @@ class DeepgramStreamingClient:
         except Exception as exc:
             logger.error("deepgram_transcript_parse_error", error=str(exc))
 
-    def _buffer_final_segment(self, text: str, confidence: float) -> None:
+    def _buffer_final_segment(
+        self,
+        text: str,
+        confidence: float,
+        *,
+        detected_language: Optional[str] = None,
+        language_confidence: Optional[float] = None,
+    ) -> None:
         normalized = " ".join(text.split()).strip()
         if not normalized:
             return
@@ -751,6 +779,11 @@ class DeepgramStreamingClient:
 
         self._pending_final_segments.append(normalized)
         self._pending_final_confidence = max(self._pending_final_confidence, confidence)
+        if detected_language:
+            self._pending_final_language = detected_language
+        if language_confidence is not None:
+            current = self._pending_final_language_confidence or 0.0
+            self._pending_final_language_confidence = max(current, language_confidence)
         logger.debug(
             "stt_final_segment_buffered",
             count=len(self._pending_final_segments),
@@ -763,12 +796,15 @@ class DeepgramStreamingClient:
 
         text = " ".join(self._pending_final_segments).strip()
         confidence = self._pending_final_confidence
+        detected_language = self._pending_final_language or self._language
+        language_confidence = self._pending_final_language_confidence
         self._clear_pending_segments()
 
         event = TranscriptEvent(
             text=text,
             is_final=True,
-            language=self._language,
+            language=detected_language,
+            language_confidence=language_confidence,
             confidence=confidence,
             session_id=self._session_id,
             source="deepgram",
@@ -783,8 +819,40 @@ class DeepgramStreamingClient:
     def _clear_pending_segments(self) -> None:
         self._pending_final_segments.clear()
         self._pending_final_confidence = 0.0
+        self._pending_final_language = None
+        self._pending_final_language_confidence = None
         with self._finalize_lock:
             self._finalize_requested = False
+
+    def _extract_detected_language(self, result: Any, alternative: Any) -> str:
+        candidates = (
+            getattr(result, "language", None),
+            getattr(result, "detected_language", None),
+            getattr(alternative, "language", None),
+            getattr(alternative, "detected_language", None),
+            getattr(getattr(result, "metadata", None), "language", None),
+            getattr(getattr(result, "metadata", None), "detected_language", None),
+        )
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return self._language
+
+    @staticmethod
+    def _extract_language_confidence(result: Any, alternative: Any) -> Optional[float]:
+        candidates = (
+            getattr(result, "language_confidence", None),
+            getattr(alternative, "language_confidence", None),
+            getattr(getattr(result, "metadata", None), "language_confidence", None),
+        )
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                return float(candidate)
+            except (TypeError, ValueError):
+                continue
+        return None
 
     def _notify_connected(self) -> None:
         try:
@@ -835,11 +903,13 @@ def load_keyterms_from_db() -> list[str]:
         high_priority_entities = _load_column_values(
             conn,
             """
-            SELECT name FROM locations WHERE is_active=1
+            SELECT room_name FROM rooms WHERE is_active=1
+            UNION ALL
+            SELECT lab_name FROM labs WHERE is_active=1
             UNION ALL
             SELECT name FROM departments WHERE is_active=1
             UNION ALL
-            SELECT name FROM facilities WHERE is_active=1;
+            SELECT landmark_name FROM landmarks WHERE is_active=1;
             """,
         )
         common_aliases = [
@@ -849,7 +919,7 @@ def load_keyterms_from_db() -> list[str]:
                 """
                 SELECT alias_text
                 FROM aliases
-                WHERE canonical_type IN ('location', 'department', 'facility')
+                WHERE canonical_type IN ('room', 'lab', 'department', 'landmark', 'staff')
                 ORDER BY LENGTH(alias_text) ASC, alias_text ASC;
                 """,
             )

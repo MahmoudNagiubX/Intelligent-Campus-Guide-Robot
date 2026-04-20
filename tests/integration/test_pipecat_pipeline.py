@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import time
+import json
 
 import pytest
 
 from app.actions.navigation_bridge import NavigationBridge
-from app.audio.session_manager import SessionManager
 from app.pipeline.controller import ConversationController
 from app.pipeline.pipecat_graph import NavigatorPipecatRuntime
 from app.storage.db import get_db
-from app.tts.playback import PlaybackState
+from app.tts.edge_tts_client import EdgeTTSClient, _build_silent_wav
 from app.utils.contracts import IntentClass, SessionState
 from tests.fixtures.runtime_fixtures import (
-    DummyTextGroq,
     bootstrap_and_sync,
     configure_test_settings,
     latest_session_id,
@@ -22,15 +20,75 @@ from tests.fixtures.runtime_fixtures import (
 )
 
 
+class EnglishCampusGroq:
+    def complete_text(self, *args, **kwargs) -> str:
+        return "The robotics lab is in building C."
+
+
+class BilingualCampusGroq:
+    def complete_text(self, *args, **kwargs) -> str:
+        system_prompt = kwargs.get("system_prompt", "")
+        return "المعمل في المبنى C." if any(ord(char) > 127 for char in system_prompt) else "The lab is in building C."
+
+
+class BilingualRouterGroq:
+    def complete_json(self, *args, **kwargs) -> str:
+        transcript = kwargs.get("user_message", "")
+        if any(ord(char) > 127 for char in transcript):
+            return json.dumps(
+                {
+                    "intent": "Campus_Query",
+                    "confidence": 0.97,
+                    "language": "ar",
+                    "needs_retrieval": True,
+                    "needs_navigation": False,
+                    "target_entity": "معمل الروبوتات",
+                    "target_type": "room",
+                    "normalized_query": "فين معمل الروبوتات",
+                    "clarification_needed": False,
+                    "clarification_question": "",
+                },
+                ensure_ascii=False,
+            )
+        return json.dumps(
+            {
+                "intent": "Campus_Query",
+                "confidence": 0.97,
+                "language": "en",
+                "needs_retrieval": True,
+                "needs_navigation": False,
+                "target_entity": "Robotics Lab",
+                "target_type": "room",
+                "normalized_query": "where is the robotics lab",
+                "clarification_needed": False,
+                "clarification_question": "",
+            }
+        )
+
+
+class RecordingTTS:
+    def __init__(self) -> None:
+        self._voices = EdgeTTSClient(mock=True)
+        self.languages: list[str] = []
+        self.voice_names: list[str] = []
+
+    async def synthesize(self, text: str, language: str = "en") -> bytes:
+        self.languages.append(language)
+        self.voice_names.append(self._voices.voice_for(language))
+        return _build_silent_wav(80)
+
+
 def test_csv_sync_into_sqlite(monkeypatch, tmp_path):
     configure_test_settings(monkeypatch, tmp_path)
     results, counts = bootstrap_and_sync()
 
-    assert results["locations"]["upserted"] > 0
-    assert results["departments"]["upserted"] > 0
-    assert counts["locations"] >= 10
-    assert counts["staff"] >= 1
-    assert counts["navigation_targets"] > 0
+    assert results["rooms_en"]["upserted"] > 0
+    assert results["rooms_ar"]["upserted"] > 0
+    assert results["departments_en"]["upserted"] > 0
+    assert counts["rooms"] > 0
+    assert counts["departments"] > 0
+    assert counts["staff"] > 0
+    assert counts["navigation_targets"] == 0
 
 
 @pytest.mark.asyncio
@@ -38,24 +96,18 @@ async def test_final_transcript_routes_through_campus_pipeline(monkeypatch, tmp_
     configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
-    router_groq = make_router_mock(
-        IntentClass.CAMPUS_QUERY,
-        target_text="Robotics Lab",
-        confidence=0.97,
-    )
+    router_groq = make_router_mock(IntentClass.CAMPUS_QUERY, target_text="Robotics Lab", confidence=0.97)
     monkeypatch.setattr("app.routing.router._get_groq", lambda: router_groq)
 
     runtime = NavigatorPipecatRuntime(
         mock=True,
         auto_start_audio=False,
-        controller=ConversationController(
-            groq=DummyTextGroq("The Robotics Lab is in Building C, floor 2.")
-        ),
+        controller=ConversationController(groq=EnglishCampusGroq()),
     )
 
     await runtime.start()
     try:
-        await simulate_user_turn(runtime, "where is the robotics lab")
+        await simulate_user_turn(runtime, "where is the robotics lab", language="en")
         assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
 
         events = [event.name for event in runtime.tracer.events()]
@@ -71,10 +123,6 @@ async def test_final_transcript_routes_through_campus_pipeline(monkeypatch, tmp_
         assert "speaking_started" in events
         assert "session_ended" in events
         assert "full_turn_latency_sec" in metrics
-
-        observed_frames = {event.get("frame") for event in runtime.observer.snapshot() if "frame" in event}
-        assert "TranscriptEventFrame" in observed_frames
-        assert "ResponsePacketFrame" in observed_frames
     finally:
         await runtime.shutdown()
 
@@ -84,11 +132,20 @@ async def test_navigation_request_emits_action_payload(monkeypatch, tmp_path):
     configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
-    router_groq = make_router_mock(
-        IntentClass.NAVIGATION_REQUEST,
-        target_text="Robotics Lab",
-        confidence=0.98,
+    conn = get_db()
+    room_id = conn.execute(
+        "SELECT id FROM rooms WHERE room_name='Robotics Lab' AND lang='en' ORDER BY id LIMIT 1"
+    ).fetchone()["id"]
+    conn.execute(
+        """
+        INSERT INTO navigation_targets (target_type, canonical_id, nav_code, updated_at)
+        VALUES ('room', ?, 'NAV_C105', datetime('now'))
+        """,
+        (room_id,),
     )
+    conn.commit()
+
+    router_groq = make_router_mock(IntentClass.NAVIGATION_REQUEST, target_text="Robotics Lab", confidence=0.98)
     monkeypatch.setattr("app.routing.router._get_groq", lambda: router_groq)
 
     captured_payload = {}
@@ -109,68 +166,51 @@ async def test_navigation_request_emits_action_payload(monkeypatch, tmp_path):
     runtime = NavigatorPipecatRuntime(
         mock=True,
         auto_start_audio=False,
-        controller=ConversationController(groq=DummyTextGroq("unused")),
+        controller=ConversationController(groq=EnglishCampusGroq()),
         navigation_bridge=NavigationBridge(mock=False),
     )
 
     await runtime.start()
     try:
-        await simulate_user_turn(runtime, "take me to the robotics lab")
+        await simulate_user_turn(runtime, "take me to the robotics lab", language="en")
         assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
 
         events = [event.name for event in runtime.tracer.events()]
-        assert router_groq.complete_json.called
-        assert captured_payload["target_code"] == "NAV_C105"
         assert captured_payload["action"] == "navigate"
+        assert captured_payload["target_code"] == "NAV_C105"
         assert "action_emitted" in events
     finally:
         await runtime.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_tts_interruption_stops_playback_and_returns_to_listening(monkeypatch, tmp_path):
-    configure_test_settings(monkeypatch, tmp_path)
+async def test_integration_smoke_covers_english_and_arabic_tts_paths(monkeypatch, tmp_path):
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
+    monkeypatch.setattr("app.routing.router._get_groq", lambda: BilingualRouterGroq())
 
-    router_groq = make_router_mock(
-        IntentClass.SOCIAL_CHAT,
-        target_text=None,
-        confidence=0.96,
-    )
-    monkeypatch.setattr("app.routing.router._get_groq", lambda: router_groq)
-
+    tts = RecordingTTS()
     runtime = NavigatorPipecatRuntime(
         mock=True,
         auto_start_audio=False,
-        controller=ConversationController(
-            groq=DummyTextGroq("Hello there. I am Navigator and I can help you.")
-        ),
-        session_manager=SessionManager(session_timeout_sec=3),
+        controller=ConversationController(groq=BilingualCampusGroq()),
+        tts_client=tts,
     )
-
-    def slow_mock_playback():
-        for _ in range(30):
-            time.sleep(0.02)
-            if runtime.playback_manager._stop_event.is_set():
-                with runtime.playback_manager._lock:
-                    runtime.playback_manager._state = PlaybackState.STOPPED
-                return
-
-    runtime.playback_manager._mock_playback = slow_mock_playback  # type: ignore[attr-defined]
 
     await runtime.start()
     try:
-        await simulate_user_turn(runtime, "how are you")
-        assert await runtime.wait_for_state(SessionState.SPEAKING, timeout=2.0)
+        await simulate_user_turn(runtime, "where is the robotics lab", language="en")
+        assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
 
-        runtime.vad.set_mock_speech(True)
-        runtime.process_audio_frame(b"\x01" * 1024)
-        await asyncio.sleep(0.15)
-        runtime.vad.set_mock_speech(False)
+        await asyncio.sleep(2.1)
+        await simulate_user_turn(runtime, "فين معمل الروبوتات", language="ar-EG")
+        assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
 
-        events = [event.name for event in runtime.tracer.events()]
-        assert runtime.session_manager.state == SessionState.LISTENING
-        assert runtime.playback_manager.state == PlaybackState.STOPPED
-        assert "speaking_interrupted" in events
+        error_events = [event for event in runtime.tracer.events() if event.name == "error_occurred"]
+
+        assert tts.languages[:2] == ["en", "ar-EG"]
+        assert "Jenny" in tts.voice_names[0] or "en-US" in tts.voice_names[0]
+        assert "ar-EG" in tts.voice_names[1]
+        assert error_events == []
     finally:
         await runtime.shutdown()

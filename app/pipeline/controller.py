@@ -1,21 +1,21 @@
 """
 Navigator - Dual-Path Conversation Controller
-Phase 5, Step 5.1
 
-The central hub that receives final transcripts, classifies intent,
-dispatches to the correct path, and returns a ResponsePacket for TTS and
-actions.
+Receives final transcripts, detects language, classifies intent, dispatches to
+retrieval or social handling, and returns a ResponsePacket for TTS/actions.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Optional
 
+from app.config import get_settings
 from app.llm.groq_client import GroqClient
+from app.pipeline.language_detector import detect_language, lang_is_arabic
 from app.pipeline.response_composer import ResponseComposer
-from app.retrieval.search import _strip_filler, normalize_query, retrieve
+from app.retrieval.search import normalize_query, search
 from app.routing.router import route
 from app.utils.contracts import IntentClass, IntentResult, ResponsePacket, RetrievalResult, TranscriptEvent
 from app.utils.logging import get_logger
@@ -38,6 +38,9 @@ _LOCATION_REQUEST_PREFIXES = (
     "navigate to",
     "find",
     "show me",
+    "فين",
+    "خدني",
+    "وديني",
 )
 _INCOMPLETE_LOCATION_QUERIES = {
     "where",
@@ -51,17 +54,14 @@ _INCOMPLETE_LOCATION_QUERIES = {
     "show me",
     "navigate",
     "navigate to",
+    "فين",
+    "خدني",
+    "وديني",
 }
 
 
 class ConversationController:
-    """
-    Orchestrates one full conversation turn from raw transcript to spoken
-    response.
-
-    Args:
-        groq: Shared GroqClient instance used by the response composer.
-    """
+    """Orchestrates one full conversation turn from transcript to response."""
 
     def __init__(self, groq: Optional[GroqClient] = None) -> None:
         self._groq = groq or GroqClient()
@@ -69,23 +69,25 @@ class ConversationController:
         self._trace_hook: Optional[Callable[..., None]] = None
 
     def set_trace_hook(self, trace_hook: Optional[Callable[..., None]]) -> None:
-        """Register an optional trace callback used by the live runtime."""
         self._trace_hook = trace_hook
 
     def handle_transcript(self, event: TranscriptEvent) -> ResponsePacket:
-        """
-        Process one final transcript event and return a ResponsePacket.
-
-        Never raises - always returns a safe ResponsePacket.
-        """
         session_id = event.session_id
-        language = event.language or "en"
         text = (event.text or "").strip()
+        cfg = get_settings()
+        detected_lang = detect_language(
+            text=text,
+            deepgram_lang=event.language,
+            deepgram_confidence=event.language_confidence,
+            default_lang=cfg.default_language,
+        )
+        language = detected_lang.code
 
         logger.info(
             "controller_turn_start",
             text=text[:80],
             language=language,
+            language_source=detected_lang.source,
             session_id=session_id,
         )
 
@@ -100,14 +102,20 @@ class ConversationController:
             return pre_router_packet
 
         try:
-            packet = self._dispatch(text, language, session_id, event.confidence)
+            packet = self._dispatch(
+                text=text,
+                language=language,
+                session_id=session_id,
+                stt_confidence=event.confidence,
+                detected_language=detected_lang.code,
+            )
             self._trace_response(packet)
             return packet
         except Exception as exc:
             logger.error("controller_unhandled_error", error=str(exc), session_id=session_id)
             self._trace("error_occurred", session_id, source="controller", message=str(exc))
             packet = ResponsePacket(
-                text="Something went wrong. Please try again.",
+                text="حصلت مشكلة عندي. حاول تسألني تاني." if lang_is_arabic(detected_lang) else "Something went wrong. Please try again.",
                 language=language,
                 session_id=session_id,
             )
@@ -116,13 +124,14 @@ class ConversationController:
 
     def _dispatch(
         self,
+        *,
         text: str,
         language: str,
         session_id: Optional[str],
         stt_confidence: float,
+        detected_language: str,
     ) -> ResponsePacket:
-        """Classify intent and call the appropriate path handler."""
-        intent_result = self._classify(text, session_id)
+        intent_result = self._classify(text, detected_language, session_id)
 
         logger.info(
             "controller_intent",
@@ -148,17 +157,15 @@ class ConversationController:
                 session_id=session_id,
             )
 
-        intent_result = self._normalize_intent_query(intent_result, stt_confidence, session_id)
+        intent_result = self._normalize_intent_query(intent_result, stt_confidence, language, session_id)
 
-        match intent_result.intent:
-            case IntentClass.CAMPUS_QUERY:
-                return self._handle_campus_query(intent_result, text, language, session_id, stt_confidence)
-            case IntentClass.NAVIGATION_REQUEST:
-                return self._handle_navigation_request(intent_result, text, language, session_id, stt_confidence)
-            case IntentClass.SOCIAL_CHAT:
-                return self._handle_social_chat(text, language, session_id)
-            case _:
-                return self._composer.compose_unknown_answer(language=language, session_id=session_id)
+        if intent_result.intent == IntentClass.CAMPUS_QUERY:
+            return self._handle_campus_query(intent_result, text, language, session_id, stt_confidence)
+        if intent_result.intent == IntentClass.NAVIGATION_REQUEST:
+            return self._handle_navigation_request(intent_result, text, language, session_id, stt_confidence)
+        if intent_result.intent == IntentClass.SOCIAL_CHAT:
+            return self._handle_social_chat(text, language, session_id)
+        return self._composer.compose_unknown_answer(language=language, session_id=session_id)
 
     def _handle_campus_query(
         self,
@@ -168,21 +175,9 @@ class ConversationController:
         session_id: Optional[str],
         stt_confidence: float,
     ) -> ResponsePacket:
-        """Retrieve campus facts and compose a spoken answer."""
         query = intent_result.target_text or intent_result.raw_query or ""
         original_query = intent_result.raw_query or transcript_text or ""
-
-        query, retrieval = self._resolve_retrieval_query(query, stt_confidence, session_id)
-        logger.info("controller_campus_retrieve", query=query, session_id=session_id)
-
-        logger.info(
-            "controller_campus_retrieval_done",
-            status=retrieval.status.value,
-            entity=retrieval.canonical_name,
-            confidence=round(retrieval.confidence, 3),
-            score_margin=round(retrieval.score_margin, 3),
-            session_id=session_id,
-        )
+        query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
         self._trace(
             "retrieval_finished",
             session_id,
@@ -216,22 +211,9 @@ class ConversationController:
         session_id: Optional[str],
         stt_confidence: float,
     ) -> ResponsePacket:
-        """Retrieve the navigation target and emit an action command if safe."""
         query = intent_result.target_text or intent_result.raw_query or ""
         original_query = intent_result.raw_query or transcript_text or ""
-
-        query, retrieval = self._resolve_retrieval_query(query, stt_confidence, session_id)
-        logger.info("controller_nav_retrieve", query=query, session_id=session_id)
-
-        logger.info(
-            "controller_nav_retrieval_done",
-            status=retrieval.status.value,
-            entity=retrieval.canonical_name,
-            nav_code=retrieval.nav_code,
-            confidence=round(retrieval.confidence, 3),
-            score_margin=round(retrieval.score_margin, 3),
-            session_id=session_id,
-        )
+        query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
         self._trace(
             "retrieval_finished",
             session_id,
@@ -258,29 +240,18 @@ class ConversationController:
             session_id=session_id,
         )
 
-    def _handle_social_chat(
-        self,
-        text: str,
-        language: str,
-        session_id: Optional[str],
-    ) -> ResponsePacket:
-        """Generate a warm, short social chat response."""
-        return self._composer.compose_social_answer(
-            transcript=text,
-            language=language,
-            session_id=session_id,
-        )
+    def _handle_social_chat(self, text: str, language: str, session_id: Optional[str]) -> ResponsePacket:
+        return self._composer.compose_social_answer(transcript=text, language=language, session_id=session_id)
 
-    def _classify(self, text: str, session_id: Optional[str]) -> IntentResult:
-        """Call the router and return an IntentResult. Never raises."""
+    def _classify(self, text: str, language: str, session_id: Optional[str]) -> IntentResult:
         try:
-            return route(text)
+            return route(text, lang_hint=language)
         except Exception as exc:
             logger.error("controller_router_error", error=str(exc), session_id=session_id)
             self._trace("error_occurred", session_id, source="router", message=str(exc))
             return IntentResult(
                 intent=IntentClass.UNKNOWN,
-                language="en",
+                language=language,
                 raw_query=text,
                 reason="router_exception",
             )
@@ -291,10 +262,8 @@ class ConversationController:
         language: str,
         session_id: Optional[str],
     ) -> Optional[ResponsePacket]:
-        """Short-circuit obviously incomplete campus requests before routing."""
-        if not self._looks_malformed_location_query(text):
+        if not self._looks_malformed_location_query(text, language):
             return None
-
         logger.info("controller_transcript_low_quality", reason="malformed_location_query", text=text[:80])
         return self._composer.compose_quality_clarification(
             language=language,
@@ -306,21 +275,15 @@ class ConversationController:
         self,
         intent_result: IntentResult,
         stt_confidence: float,
+        language: str,
         session_id: Optional[str],
     ) -> IntentResult:
-        """Apply a small set of evidence-backed STT corrections for campus entities."""
         if intent_result.intent not in (IntentClass.CAMPUS_QUERY, IntentClass.NAVIGATION_REQUEST):
             return intent_result
-
         query = intent_result.target_text or intent_result.raw_query or ""
-        corrected_query, corrected = self._maybe_apply_transcript_correction(
-            query,
-            stt_confidence,
-            session_id,
-        )
+        corrected_query, corrected = self._maybe_apply_transcript_correction(query, stt_confidence, language, session_id)
         if not corrected:
             return intent_result
-
         return replace(
             intent_result,
             target_text=corrected_query if intent_result.target_text else intent_result.target_text,
@@ -331,39 +294,38 @@ class ConversationController:
         self,
         query: str,
         stt_confidence: float,
+        language: str,
         session_id: Optional[str],
     ) -> tuple[str, RetrievalResult]:
-        corrected_query, corrected = self._maybe_apply_transcript_correction(query, stt_confidence, session_id)
+        corrected_query, corrected = self._maybe_apply_transcript_correction(query, stt_confidence, language, session_id)
         final_query = corrected_query if corrected else query
-        return final_query, retrieve(final_query)
+        return final_query, search(final_query, lang=language)
 
     def _maybe_apply_transcript_correction(
         self,
         query: str,
         stt_confidence: float,
+        language: str,
         session_id: Optional[str],
     ) -> tuple[str, bool]:
-        normalized_query = normalize_query(query)
+        normalized_query = normalize_query(query, language)
         if not normalized_query:
             return query, False
 
         base_retrieval: Optional[RetrievalResult] = None
+        if language.startswith("ar"):
+            return query, False
+
         for confused_phrase, canonical_phrase in _TRANSCRIPT_CORRECTIONS.items():
             if confused_phrase not in normalized_query:
                 continue
-
             if base_retrieval is None:
-                base_retrieval = retrieve(query)
-
-            if (
-                stt_confidence >= 0.92
-                and base_retrieval.status.value == "ok"
-                and base_retrieval.confidence >= 0.9
-            ):
+                base_retrieval = search(query, lang=language)
+            if stt_confidence >= 0.92 and base_retrieval.status.value == "ok" and base_retrieval.confidence >= 0.9:
                 continue
 
             candidate_query = normalized_query.replace(confused_phrase, canonical_phrase)
-            candidate_retrieval = retrieve(candidate_query)
+            candidate_retrieval = search(candidate_query, lang=language)
             if not self._should_accept_correction(base_retrieval, candidate_retrieval):
                 continue
 
@@ -377,11 +339,10 @@ class ConversationController:
                 session_id=session_id,
             )
             return candidate_query, True
-
         return query, False
 
     @staticmethod
-    def _should_accept_correction(base_retrieval, candidate_retrieval) -> bool:
+    def _should_accept_correction(base_retrieval: RetrievalResult, candidate_retrieval: RetrievalResult) -> bool:
         if candidate_retrieval.status.value != "ok":
             return False
         if candidate_retrieval.confidence < _CORRECTION_MIN_CONFIDENCE:
@@ -403,34 +364,20 @@ class ConversationController:
             return None
 
         ask_location = intent_result.intent == IntentClass.NAVIGATION_REQUEST or self._looks_like_location_request(
-            transcript_text
+            transcript_text, language
         )
         suggestion = retrieval.candidates[0] if retrieval.candidates else None
         alternatives = retrieval.candidates[:2]
 
         if retrieval.status.value == "not_found":
             if suggestion and retrieval.confidence >= 0.48:
-                logger.info(
-                    "controller_quality_clarification",
-                    reason="weak_retrieval_with_suggestion",
-                    suggestion=suggestion,
-                    confidence=round(retrieval.confidence, 3),
-                    session_id=session_id,
-                )
                 return self._composer.compose_quality_clarification(
                     language=language,
                     session_id=session_id,
                     suggestion=suggestion,
                     ask_location=ask_location,
                 )
-
-            if ask_location and self._has_weak_campus_evidence(intent_result.raw_query or transcript_text):
-                logger.info(
-                    "controller_quality_clarification",
-                    reason="weak_campus_evidence",
-                    confidence=round(retrieval.confidence, 3),
-                    session_id=session_id,
-                )
+            if ask_location and self._has_weak_campus_evidence(intent_result.raw_query or transcript_text, language):
                 return self._composer.compose_quality_clarification(
                     language=language,
                     session_id=session_id,
@@ -439,79 +386,57 @@ class ConversationController:
             return None
 
         if retrieval.status.value == "ok":
-            if (
-                ask_location
-                and retrieval.confidence < _WEAK_RETRIEVAL_THRESHOLD
-                and suggestion is not None
-            ):
-                logger.info(
-                    "controller_quality_clarification",
-                    reason="weak_top_result",
-                    suggestion=suggestion,
-                    confidence=round(retrieval.confidence, 3),
-                    session_id=session_id,
-                )
+            if ask_location and retrieval.confidence < _WEAK_RETRIEVAL_THRESHOLD and suggestion is not None:
                 return self._composer.compose_quality_clarification(
                     language=language,
                     session_id=session_id,
                     suggestion=suggestion,
                     ask_location=True,
                 )
-
             if (
                 ask_location
                 and len(alternatives) >= 2
                 and retrieval.second_best_score >= _WEAK_RETRIEVAL_THRESHOLD
                 and retrieval.score_margin <= _WEAK_MARGIN_THRESHOLD
             ):
-                logger.info(
-                    "controller_quality_clarification",
-                    reason="narrow_retrieval_margin",
-                    alternatives=alternatives,
-                    confidence=round(retrieval.confidence, 3),
-                    score_margin=round(retrieval.score_margin, 3),
-                    session_id=session_id,
-                )
                 return self._composer.compose_quality_clarification(
                     language=language,
                     session_id=session_id,
                     alternatives=alternatives,
                     ask_location=True,
                 )
-
         return None
 
     @staticmethod
-    def _looks_like_location_request(text: str) -> bool:
-        normalized = normalize_query(text)
+    def _looks_like_location_request(text: str, language: str) -> bool:
+        normalized = normalize_query(text, language)
         return normalized.startswith(_LOCATION_REQUEST_PREFIXES) or "location" in normalized
 
     @staticmethod
-    def _looks_malformed_location_query(text: str) -> bool:
-        normalized = normalize_query(text)
+    def _looks_malformed_location_query(text: str, language: str) -> bool:
+        normalized = normalize_query(text, language)
         if not normalized:
             return False
         if normalized in _INCOMPLETE_LOCATION_QUERIES:
             return True
         if normalized.startswith(_LOCATION_REQUEST_PREFIXES):
-            core = _strip_filler(normalized)
-            return not core or len(core.split()) == 0
+            core = normalize_query(text, language)
+            stripped = core if language.startswith("ar") else normalize_query(text, language)
+            return not _strip_like_core(stripped, language)
         return False
 
     @staticmethod
-    def _has_weak_campus_evidence(text: str) -> bool:
-        normalized = normalize_query(text)
+    def _has_weak_campus_evidence(text: str, language: str) -> bool:
+        normalized = normalize_query(text, language)
         if not normalized:
             return True
-        core = _strip_filler(normalized)
+        core = _strip_like_core(normalized, language)
         if not core:
             return True
         tokens = core.split()
         if len(tokens) == 1 and len(tokens[0]) <= 2:
             return True
-        if len(core) < 4:
-            return True
-        return False
+        return len(core) < 4
 
     def _trace_response(self, packet: ResponsePacket) -> None:
         self._trace(
@@ -523,10 +448,15 @@ class ConversationController:
         )
 
     def _trace(self, event_name: str, session_id: Optional[str], **fields) -> None:
-        """Safely emit runtime trace events when a hook is configured."""
         if self._trace_hook is None:
             return
         try:
             self._trace_hook(event_name, session_id=session_id, **fields)
         except Exception as exc:
             logger.debug("controller_trace_hook_error", event=event_name, error=str(exc))
+
+
+def _strip_like_core(text: str, language: str) -> str:
+    from app.retrieval.search import _strip_filler
+
+    return _strip_filler(text, language)

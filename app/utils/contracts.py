@@ -82,6 +82,9 @@ class TranscriptEvent:
     language: str = "en"
     """Detected or assumed language code, e.g. 'en' or 'ar-EG'."""
 
+    language_confidence: Optional[float] = None
+    """Optional language-detection confidence reported by the STT provider."""
+
     confidence: float = 0.0
     """STT confidence score from 0.0 to 1.0."""
 
@@ -155,7 +158,7 @@ class RetrievalResult:
     """Outcome of the retrieval attempt."""
 
     entity_type: Optional[str] = None
-    """e.g. 'location', 'staff', 'department', 'facility'"""
+    """e.g. 'room', 'lab', 'department', 'landmark', or 'staff'"""
 
     entity_id: Optional[int] = None
     """Primary key of the matched record in SQLite."""
