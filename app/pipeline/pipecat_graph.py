@@ -476,6 +476,7 @@ class NavigatorPipecatRuntime:
         self._running = False
         self._mic_thread: Optional[threading.Thread] = None
         self._last_session_id: Optional[str] = None
+        self._session_end_lock = threading.Lock()
 
         self._tracer = NavigatorRuntimeTracer()
         self._observer = GraphTraceObserver()
@@ -720,6 +721,7 @@ class NavigatorPipecatRuntime:
             return
 
         if self._session_manager.state == SessionState.SPEAKING:
+            self._playback_manager.notify_speech_detected()
             self._session_manager.on_barge_in()
             self._tracer.record("speaking_interrupted", session_id=session_id)
             self._queue_frame_threadsafe(InterruptionFrame())
@@ -765,25 +767,39 @@ class NavigatorPipecatRuntime:
             source="playback",
             message="no_audio_available_for_playback",
         )
-        self._session_manager.end_session(reason="empty_audio")
-        self._wakeword.set_session_active(False)
-        self._deepgram_adapter.disconnect()
-        self._deepgram_adapter.set_session_id(None)
-        self._vad.reset()
-        self._tracer.record("session_ended", session_id=session_id, reason="empty_audio")
+        self._on_session_ended(reason="empty_audio", session_id=session_id)
 
     def _on_playback_complete(self) -> None:
-        self._session_manager.on_playback_complete()
-        self._deepgram_adapter.disconnect()
-        self._vad.reset()
+        self._on_session_ended(reason="playback_complete", stop_playback=False)
 
-    def _on_session_timeout(self) -> None:
-        session_id = self._last_session_id
-        self._wakeword.set_session_active(False)
-        self._deepgram_adapter.disconnect()
-        self._deepgram_adapter.set_session_id(None)
-        self._vad.reset()
-        self._tracer.record("session_ended", session_id=session_id, reason="timeout")
+    def _on_session_timeout(self, reason: str = "timeout") -> None:
+        self._on_session_ended(reason=reason)
+
+    def _on_session_ended(
+        self,
+        reason: str,
+        session_id: Optional[str] = None,
+        *,
+        stop_playback: bool = True,
+    ) -> None:
+        with self._session_end_lock:
+            active_session_id = session_id or self._session_manager.session_id or self._last_session_id
+            if active_session_id is None and self._session_manager.state == SessionState.IDLE:
+                return
+
+            if stop_playback:
+                self._playback_manager.stop()
+            self._wakeword.set_session_active(False)
+            self._deepgram_adapter.disconnect()
+            self._deepgram_adapter.reset_turn()
+            self._deepgram_adapter.set_session_id(None)
+            self._vad.reset()
+
+            ended_session_id = self._session_manager.end_session(reason=reason) or active_session_id
+            if ended_session_id:
+                self._last_session_id = ended_session_id
+
+            self._tracer.record("session_ended", session_id=ended_session_id, reason=reason)
 
     def _queue_frame_threadsafe(
         self,

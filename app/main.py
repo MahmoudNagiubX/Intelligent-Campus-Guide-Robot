@@ -14,6 +14,7 @@ from app.pipeline.pipecat_graph import NavigatorPipecatRuntime
 from app.routing.router import shutdown_router
 from app.storage import bootstrap_schema, close_db, get_table_counts
 from app.storage.sync_csv import sync_all_csvs
+from scripts.health_check import run_health_checks
 from app.utils.logging import get_logger, setup_logging
 
 
@@ -35,6 +36,11 @@ def main() -> None:
 
         counts = get_table_counts()
         logger.info("db_table_counts", **counts)
+
+        if not run_health_checks():
+            logger.error("navigator_startup_blocked", reason="health_check_failed")
+            raise RuntimeError("Navigator health checks failed. Startup aborted.")
+
         logger.info("navigator_boot_ok")
 
         runtime = NavigatorPipecatRuntime()
@@ -43,6 +49,7 @@ def main() -> None:
         except KeyboardInterrupt:
             logger.info("navigator_stopped_by_user")
     finally:
+        get_logger(__name__).info("navigator_shutdown")
         shutdown_router()
         close_db()
 

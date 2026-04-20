@@ -132,7 +132,7 @@ async def test_retrieval_not_found_returns_safe_bounded_answer(monkeypatch, tmp_
 
         response_events = [event for event in runtime.tracer.events() if event.name == "response_generated"]
         assert response_events
-        assert "couldn't find" in response_events[-1].data["text"].lower()
+        assert "could not find" in response_events[-1].data["text"].lower()
     finally:
         await runtime.shutdown()
 
