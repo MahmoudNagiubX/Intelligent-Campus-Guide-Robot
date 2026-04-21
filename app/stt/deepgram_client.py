@@ -49,7 +49,7 @@ _DEEPGRAM_SAMPLE_RATE = 16000
 _DEEPGRAM_CHANNELS = 1
 _DEEPGRAM_KEEPALIVE_SEC = 4.0
 _PENDING_AUDIO_FRAMES_LIMIT = 1024
-_DEEPGRAM_MAX_KEYTERMS = 100
+_DEEPGRAM_MAX_KEYTERMS = 50
 _ENTITY_KEYTERM_LIMIT = 36
 _ALIAS_KEYTERM_LIMIT = 40
 _STAFF_KEYTERM_LIMIT = 20
@@ -341,9 +341,15 @@ class DeepgramStreamingClient:
         reintroduces Nova-3 keyterm prompting using Deepgram's supported
         `keyterm` parameter when campus hints are available.
         """
+        # Deepgram Nova-3 does not support `language="multi"` together with
+        # keyterm prompting. When keyterms are active, pin the live request to
+        # English and let downstream language detection fall back to the local
+        # Unicode heuristic when needed.
+        active_language = "en" if self._keyterms else self._deepgram_live_language
+
         options = {
             "model": _DEEPGRAM_MODEL,
-            "language": self._deepgram_live_language,
+            "language": active_language,
             "encoding": _DEEPGRAM_ENCODING,
             "sample_rate": _DEEPGRAM_SAMPLE_RATE,
             "channels": _DEEPGRAM_CHANNELS,
@@ -358,27 +364,8 @@ class DeepgramStreamingClient:
         """
         Prepare the correct Nova-3 keyterm shape for a future opt-in rollout.
         """
-        normalized_terms: list[str] = []
-        seen_terms: set[str] = set()
-
-        for raw_term in self._keyterms:
-            term = " ".join(str(raw_term).split()).strip()
-            if not term:
-                continue
-
-            dedupe_key = term.casefold()
-            if dedupe_key in seen_terms:
-                continue
-
-            seen_terms.add(dedupe_key)
-            normalized_terms.append(term)
-            if len(normalized_terms) >= _DEEPGRAM_MAX_KEYTERMS:
-                break
-
-        if not normalized_terms:
-            return {}
-
-        return {"keyterm": normalized_terms}
+        # keyterm prompting disabled — not supported on current Deepgram account tier; causes 'vary' SDK crash on connect.
+        return {}
 
     # Transcript routing -------------------------------------------------
 
@@ -965,7 +952,7 @@ def load_keyterms_from_db() -> list[str]:
             aliases_count=len(alias_terms),
             staff_count=len(staff_terms),
         )
-        return curated_terms
+        return curated_terms[:_DEEPGRAM_MAX_KEYTERMS]
 
     except Exception as exc:
         logger.error("deepgram_keyterms_load_error", error=str(exc))
