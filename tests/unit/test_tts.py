@@ -110,6 +110,15 @@ class TestEdgeTTSClient:
         finally:
             get_settings.cache_clear()
 
+    def test_playback_manager_reads_speaker_device_index_from_env(self, monkeypatch):
+        monkeypatch.setenv("SPEAKER_DEVICE_INDEX", "3")
+        get_settings.cache_clear()
+        try:
+            pm = PlaybackManager(mock=True)
+            assert pm._speaker_device_index == 3
+        finally:
+            get_settings.cache_clear()
+
     def test_edge_tts_rate_is_passed_to_sdk(self, monkeypatch):
         captured = {}
 

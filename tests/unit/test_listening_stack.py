@@ -126,6 +126,22 @@ class TestWakeWordDetectorMock:
         detector.start()
         detector.stop()
 
+    def test_start_in_external_feed_mode_does_not_spawn_internal_thread(self):
+        detector = WakeWordDetector(mock=False)
+        detector.start()
+        try:
+            assert detector._running is True
+            assert detector._thread is None
+        finally:
+            detector.stop()
+
+    def test_detect_loop_with_no_iterator_exits_cleanly(self):
+        detector = WakeWordDetector(mock=False)
+
+        detector._detect_loop(None)
+
+        assert detector._thread is None
+
 
 class TestWakeWordDetectorConfig:
     def test_model_reference_defaults_from_phrase(self, monkeypatch):

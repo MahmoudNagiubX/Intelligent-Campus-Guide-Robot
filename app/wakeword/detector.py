@@ -85,6 +85,10 @@ class WakeWordDetector:
             logger.info("wakeword_mock_started")
             return
 
+        if mic_frames_iter is None:
+            logger.info("wakeword_started_external_feed")
+            return
+
         self._thread = threading.Thread(
             target=self._detect_loop,
             args=(mic_frames_iter,),
@@ -204,6 +208,9 @@ class WakeWordDetector:
 
     def _detect_loop(self, mic_frames_iter) -> None:
         """Main background detection loop."""
+        if mic_frames_iter is None:
+            return
+
         if not self._load_model():
             logger.error("wakeword_loop_aborted_no_model")
             self._running = False

@@ -2,7 +2,7 @@
 Navigator - Response Composer
 
 Generates final spoken responses for campus and social paths. Campus answers
-are grounded strictly in verified RetrievalResult data and never use the LLM.
+use Groq to rewrite verified retrieval facts into short natural speech.
 """
 
 from __future__ import annotations
@@ -28,8 +28,33 @@ _FALLBACK_NAV_AMBIGUOUS_EN = "I found a few possible matches. Can you be more sp
 _FALLBACK_NAV_AMBIGUOUS_AR = "لقيت أكتر من احتمال. ممكن تحدد المكان أكتر؟"
 _FALLBACK_SOCIAL_EN = "Hey! How can I help you today?"
 _FALLBACK_SOCIAL_AR = "أهلاً! أقدر أساعدك بإيه؟"
-_NAV_OFFER_EN = "If you want, I can guide you there."
-_NAV_OFFER_AR = "ولو تحب أقدر أوصلك لهناك."
+_NAV_OFFER_EN = "I can guide you there if you'd like."
+_NAV_OFFER_AR = "أقدر آخدك هناك لو حابب."
+
+_ENTITY_TYPE_LABEL_EN = {
+    "room": "Room",
+    "lab": "Lab",
+    "department": "Department",
+    "landmark": "Landmark",
+    "staff": "Staff",
+}
+_ENTITY_TYPE_LABEL_AR = {
+    "room": "غرفة",
+    "lab": "معمل",
+    "department": "قسم",
+    "landmark": "معلم",
+    "staff": "دكتور",
+}
+_DESCRIPTION_TRANSLATIONS_AR = {
+    "lab": "معمل",
+    "office": "مكتب",
+    "administration": "إدارة",
+    "department": "قسم",
+    "landmark": "معلم",
+    "room": "غرفة",
+    "open": "مفتوح",
+    "closed": "مغلق",
+}
 
 
 def _is_arabic(language: str) -> bool:
@@ -86,8 +111,22 @@ class ResponseComposer:
             text = _FALLBACK_ERROR_AR if _is_arabic(language) else _FALLBACK_ERROR_EN
             return ResponsePacket(text=text, language=language, session_id=session_id)
 
-        self._touch_campus_prompt(language)
-        spoken = self._render_campus_answer(retrieval, language)
+        facts_block = self._format_facts_block(retrieval, language)
+        prompt = self._render_prompt_template(_campus_prompt_for(language), facts_block)
+        try:
+            raw = self._groq.complete_text(
+                system_prompt=prompt,
+                user_message=facts_block,
+                max_tokens=180,
+            )
+            spoken = self._clean_spoken(raw or "")
+        except Exception as exc:
+            logger.error("composer_campus_llm_error", error=str(exc))
+            spoken = ""
+
+        if not spoken:
+            spoken = self._fallback_from_facts(retrieval, language)
+
         return ResponsePacket(text=spoken, language=language, session_id=session_id)
 
     def compose_navigation_answer(
@@ -208,86 +247,106 @@ class ResponseComposer:
             text = f"I found a few matches: {candidate_list}. Which one did you mean?"
         return ResponsePacket(text=text, language=language, session_id=session_id)
 
-    def _touch_campus_prompt(self, language: str) -> None:
-        try:
-            _campus_prompt_for(language)
-        except Exception as exc:
-            logger.error("composer_campus_prompt_load_error", error=str(exc), language=language)
-
-    def _render_campus_answer(self, retrieval: RetrievalResult, language: str) -> str:
-        name = retrieval.canonical_name or ("المكان ده" if _is_arabic(language) else "that place")
-        facts = retrieval.spoken_facts
-        location_sentence = self._build_location_sentence(name, facts, language)
-        details_sentence = self._build_details_sentence(facts, language)
-        navigation_sentence = self._build_navigation_offer(retrieval, language)
-
-        parts = [location_sentence]
-        if navigation_sentence:
-            parts.append(navigation_sentence)
-        elif details_sentence:
-            parts.append(details_sentence)
-        parts = [part for part in parts if part]
-        if parts:
-            return " ".join(parts[:2]) if len(parts) > 1 else parts[0]
-        if _is_arabic(language):
-            return f"لقيت {name}."
-        return f"I found {name}."
-
-    def _build_location_sentence(self, name: str, facts: Optional[SpokenFacts], language: str) -> str:
-        location_bits = self._location_bits(facts, language)
-        if not location_bits:
-            return f"{name}." if _is_arabic(language) else f"{name}."
-        joined = self._join_bits(location_bits, language)
-        if _is_arabic(language):
-            return f"{name} في {joined}."
-        return f"{name} is in {joined}."
-
-    def _build_details_sentence(self, facts: Optional[SpokenFacts], language: str) -> str:
-        if not facts:
-            return ""
-
-        detail_bits: list[str] = []
-        if facts.description:
-            detail_bits.append(
-                f"الوصف: {facts.description}" if _is_arabic(language) else f"Description: {facts.description}"
-            )
-        if facts.office_hours:
-            detail_bits.append(
-                f"مواعيده: {facts.office_hours}" if _is_arabic(language) else f"Office hours are {facts.office_hours}"
-            )
-        if facts.contact_notes:
-            detail_bits.append(
-                f"ملاحظات التواصل: {facts.contact_notes}"
-                if _is_arabic(language)
-                else f"Contact notes: {facts.contact_notes}"
-            )
-
-        if not detail_bits:
-            return ""
-        return f"{self._join_bits(detail_bits, language)}."
-
-    def _build_navigation_offer(self, retrieval: RetrievalResult, language: str) -> str:
-        if not retrieval.nav_code:
-            return ""
-        return _NAV_OFFER_AR if _is_arabic(language) else _NAV_OFFER_EN
-
-    def _location_bits(self, facts: Optional[SpokenFacts], language: str) -> list[str]:
-        if not facts:
-            return []
-
-        bits: list[str] = []
-        if facts.building:
-            bits.append(f"المبنى {facts.building}" if _is_arabic(language) else f"building {facts.building}")
-        if facts.floor:
-            bits.append(f"الدور {facts.floor}" if _is_arabic(language) else f"floor {facts.floor}")
-        if facts.room:
-            bits.append(f"الغرفة {facts.room}" if _is_arabic(language) else f"room {facts.room}")
-        return bits
+    def _format_facts_block(self, retrieval: RetrievalResult, language: str) -> str:
+        facts = []
+        facts_map = self._facts_map(retrieval, language)
+        for label, value in facts_map:
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            facts.append(f"{label}: {text}")
+        return "\n".join(facts)
 
     @staticmethod
-    def _join_bits(bits: list[str], language: str) -> str:
-        separator = "، " if _is_arabic(language) else ", "
-        return separator.join(bit for bit in bits if bit)
+    def _render_prompt_template(prompt: str, facts_block: str) -> str:
+        rendered = prompt.replace("{facts}", facts_block)
+        rendered = rendered.replace("{retrieval_facts}", facts_block)
+        return rendered
+
+    def _facts_map(self, retrieval: RetrievalResult, language: str) -> list[tuple[str, Optional[str]]]:
+        facts = retrieval.spoken_facts
+        if _is_arabic(language):
+            return [
+                ("الاسم", retrieval.canonical_name),
+                ("المبنى", self._fact_value(facts, "building")),
+                ("الدور", self._fact_value(facts, "floor")),
+                ("الغرفة", self._fact_value(facts, "room")),
+                ("النوع", self._entity_type_label(retrieval.entity_type, language)),
+                ("الوصف", self._description_value(facts, language)),
+                ("الساعات", self._fact_value(facts, "office_hours")),
+                ("ملاحظات التواصل", self._fact_value(facts, "contact_notes")),
+                ("رمز التوجيه", retrieval.nav_code),
+            ]
+        return [
+            ("Name", retrieval.canonical_name),
+            ("Building", self._fact_value(facts, "building")),
+            ("Floor", self._fact_value(facts, "floor")),
+            ("Room", self._fact_value(facts, "room")),
+            ("Type", self._entity_type_label(retrieval.entity_type, language)),
+            ("Description", self._description_value(facts, language)),
+            ("Office hours", self._fact_value(facts, "office_hours")),
+            ("Contact notes", self._fact_value(facts, "contact_notes")),
+            ("Nav code", retrieval.nav_code),
+        ]
+
+    @staticmethod
+    def _fact_value(facts: Optional[SpokenFacts], field_name: str) -> Optional[str]:
+        if facts is None:
+            return None
+        value = getattr(facts, field_name, None)
+        return str(value) if value is not None else None
+
+    def _entity_type_label(self, entity_type: Optional[str], language: str) -> Optional[str]:
+        if not entity_type:
+            return None
+        if _is_arabic(language):
+            return _ENTITY_TYPE_LABEL_AR.get(entity_type, entity_type)
+        return _ENTITY_TYPE_LABEL_EN.get(entity_type, entity_type.replace("_", " ").title())
+
+    def _description_value(self, facts: Optional[SpokenFacts], language: str) -> Optional[str]:
+        raw = self._fact_value(facts, "description")
+        if raw is None:
+            return None
+        if _is_arabic(language):
+            return self._translate_term_ar(raw)
+        return raw
+
+    def _translate_term_ar(self, value: str) -> str:
+        normalized = value.strip()
+        translated = _DESCRIPTION_TRANSLATIONS_AR.get(normalized.lower())
+        return translated or normalized
+
+    def _fallback_from_facts(self, retrieval: RetrievalResult, language: str) -> str:
+        name = retrieval.canonical_name or ("المكان ده" if _is_arabic(language) else "that place")
+        facts = retrieval.spoken_facts
+        if _is_arabic(language):
+            parts = []
+            if facts and facts.building:
+                parts.append(f"في المبنى {facts.building}")
+            if facts and facts.floor:
+                parts.append(f"في الدور {facts.floor}")
+            if facts and facts.room:
+                parts.append(f"غرفة {facts.room}")
+            location = " ".join(parts).strip()
+            sentence = f"{name} {location}.".strip() if location else f"لقيت {name}."
+            if retrieval.nav_code:
+                return f"{sentence} {_NAV_OFFER_AR}"
+            return sentence
+
+        parts = []
+        if facts and facts.building:
+            parts.append(f"in building {facts.building}")
+        if facts and facts.floor:
+            parts.append(f"on floor {facts.floor}")
+        if facts and facts.room:
+            parts.append(f"room {facts.room}")
+        location = ", ".join(parts)
+        sentence = f"{name} is {location}." if location else f"I found {name}."
+        if retrieval.nav_code:
+            return f"{sentence} {_NAV_OFFER_EN}"
+        return sentence
 
     @staticmethod
     def _clean_spoken(raw: str) -> str:
