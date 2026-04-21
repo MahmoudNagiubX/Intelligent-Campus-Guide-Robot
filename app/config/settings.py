@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     wake_word_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="Activation confidence threshold")
 
     session_timeout_sec: int = Field(default=10, gt=0, description="Seconds of silence before session closes")
+    vad_end_of_utterance_ms: int = Field(
+        default=640,
+        gt=0,
+        description="Milliseconds of consecutive silence before VAD ends the utterance",
+    )
 
     sqlite_db_path: str = Field(default="./data/sqlite/navigator.db", description="Path to the SQLite database file")
     csv_english_dir: str = Field(

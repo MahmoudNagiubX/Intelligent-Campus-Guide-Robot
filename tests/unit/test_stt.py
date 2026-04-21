@@ -81,26 +81,28 @@ def test_build_connect_options_uses_multi_language_for_live_mode(monkeypatch: py
     monkeypatch.setenv("DEEPGRAM_LANGUAGE", "multi")
     get_settings.cache_clear()
     try:
-        client = DeepgramStreamingClient(mock=True, language="en", keyterms=[])
+        client = DeepgramStreamingClient(mock=True, language="en", keyterms=["Robotics Lab"])
         options = client._build_connect_options()
     finally:
         get_settings.cache_clear()
 
     assert options["language"] == "multi"
     assert options["model"] == "nova-3"
+    assert "keyterm" not in options
 
 
-def test_build_connect_options_forces_en_when_keyterms_present(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_connect_options_forces_en_when_keyterm_payload_present(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPGRAM_LANGUAGE", "multi")
     get_settings.cache_clear()
     try:
         client = DeepgramStreamingClient(mock=True, language="ar-EG", keyterms=["Robotics Lab"])
+        monkeypatch.setattr(client, "_build_nova3_keyterm_options", lambda: {"keyterm": ["Robotics Lab"]})
         options = client._build_connect_options()
     finally:
         get_settings.cache_clear()
 
     assert options["language"] == "en"
-    assert "keyterm" not in options
+    assert options["keyterm"] == ["Robotics Lab"]
 
 
 def test_load_keyterms_reads_new_bilingual_truth_tables(monkeypatch: pytest.MonkeyPatch) -> None:

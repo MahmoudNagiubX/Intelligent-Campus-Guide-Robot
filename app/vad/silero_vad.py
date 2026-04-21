@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from typing import Optional
@@ -28,8 +29,18 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# How many consecutive non-speech frames before we declare end-of-utterance
-_END_OF_UTTERANCE_FRAMES = 20  # ~640 ms at 16 kHz with 512-sample frames
+
+def _compute_end_of_utterance_frames(
+    sample_rate: int,
+    frame_size: int,
+    end_of_utterance_ms: int,
+) -> int:
+    """Convert a silence duration in milliseconds to a frame count."""
+    if sample_rate <= 0 or frame_size <= 0:
+        return 1
+
+    frame_duration_ms = (frame_size / sample_rate) * 1000.0
+    return max(1, math.ceil(end_of_utterance_ms / frame_duration_ms))
 
 
 class SileroVAD:
@@ -57,16 +68,23 @@ class SileroVAD:
     ) -> None:
         cfg = get_settings()
         self._sample_rate = cfg.mic_sample_rate
-        self._threshold   = threshold
-        self._mock        = mock
+        self._frame_size = cfg.mic_frame_size
+        self._threshold = threshold
+        self._mock = mock
+        self._end_of_utterance_ms = cfg.vad_end_of_utterance_ms
+        self._end_of_utterance_frames = _compute_end_of_utterance_frames(
+            sample_rate=self._sample_rate,
+            frame_size=self._frame_size,
+            end_of_utterance_ms=self._end_of_utterance_ms,
+        )
 
         self._on_speech_start = on_speech_start or (lambda: None)
-        self._on_speech_end   = on_speech_end   or (lambda: None)
+        self._on_speech_end = on_speech_end or (lambda: None)
         self._on_speech_frame = on_speech_frame or (lambda _: None)
 
         # State
-        self._in_speech            = False
-        self._silent_frame_count   = 0
+        self._in_speech = False
+        self._silent_frame_count = 0
 
         # Silero model objects (real mode only)
         self._model  = None
@@ -78,7 +96,13 @@ class SileroVAD:
         if not self._mock:
             self._load_model()
 
-        logger.info("vad_init", threshold=self._threshold, mock=self._mock)
+        logger.info(
+            "vad_init",
+            threshold=self._threshold,
+            mock=self._mock,
+            end_of_utterance_ms=self._end_of_utterance_ms,
+            end_of_utterance_frames=self._end_of_utterance_frames,
+        )
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -116,7 +140,7 @@ class SileroVAD:
                 except Exception:
                     pass
 
-                if self._silent_frame_count >= _END_OF_UTTERANCE_FRAMES:
+                if self._silent_frame_count >= self._end_of_utterance_frames:
                     self._in_speech = False
                     self._silent_frame_count = 0
                     logger.debug("vad_speech_end")

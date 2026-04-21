@@ -138,7 +138,7 @@ async def test_mocked_end_to_end_turn_scenarios(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_mocked_end_to_end_user_interruption_while_speaking(monkeypatch, tmp_path):
+async def test_mocked_end_to_end_vad_is_muted_while_speaking(monkeypatch, tmp_path):
     configure_test_settings(monkeypatch, tmp_path)
     bootstrap_and_sync()
     monkeypatch.setattr("app.routing.router._get_groq", lambda: ScenarioRouterGroq())
@@ -171,8 +171,8 @@ async def test_mocked_end_to_end_user_interruption_while_speaking(monkeypatch, t
         runtime.vad.set_mock_speech(False)
 
         events = [event.name for event in runtime.tracer.events()]
-        assert runtime.session_manager.state == SessionState.LISTENING
-        assert runtime.playback_manager.state == PlaybackState.STOPPED
-        assert "speaking_interrupted" in events
+        assert runtime.session_manager.state == SessionState.SPEAKING
+        assert runtime.playback_manager.state == PlaybackState.PLAYING
+        assert "speaking_interrupted" not in events
     finally:
         await runtime.shutdown()

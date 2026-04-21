@@ -220,7 +220,6 @@ class TestSileroVADMock:
         assert len(frames) == 3
 
     def test_speech_end_after_silence_frames(self):
-        from app.vad.silero_vad import _END_OF_UTTERANCE_FRAMES
         ended = []
         vad = self._make_vad(on_speech_end=lambda: ended.append(True))
 
@@ -231,11 +230,41 @@ class TestSileroVADMock:
 
         # End speech — need N silence frames
         vad.set_mock_speech(False)
-        for _ in range(_END_OF_UTTERANCE_FRAMES):
+        for _ in range(vad._end_of_utterance_frames):
             vad.process(b"\x00" * 1024)
 
         assert len(ended) == 1
         assert vad.in_speech is False
+
+    def test_default_end_of_utterance_frames_matches_legacy_default(self):
+        get_settings.cache_clear()
+        try:
+            vad = self._make_vad()
+            assert vad._end_of_utterance_ms == 640
+            assert vad._end_of_utterance_frames == 20
+        finally:
+            get_settings.cache_clear()
+
+    def test_end_of_utterance_ms_from_env_changes_silence_threshold(self, monkeypatch):
+        monkeypatch.setenv("VAD_END_OF_UTTERANCE_MS", "96")
+        get_settings.cache_clear()
+        try:
+            ended = []
+            vad = self._make_vad(on_speech_end=lambda: ended.append(True))
+
+            vad.set_mock_speech(True)
+            vad.process(b"\x00" * 1024)
+            assert vad._end_of_utterance_frames == 3
+
+            vad.set_mock_speech(False)
+            for _ in range(2):
+                vad.process(b"\x00" * 1024)
+            assert ended == []
+
+            vad.process(b"\x00" * 1024)
+            assert ended == [True]
+        finally:
+            get_settings.cache_clear()
 
     def test_reset_clears_speech_state(self):
         vad = self._make_vad()

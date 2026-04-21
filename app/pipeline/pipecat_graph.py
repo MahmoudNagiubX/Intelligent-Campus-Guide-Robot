@@ -671,7 +671,6 @@ class NavigatorPipecatRuntime:
             SessionState.WAKE_DETECTED,
             SessionState.LISTENING,
             SessionState.INTERRUPTED,
-            SessionState.SPEAKING,
         ):
             self._vad.process(frame)
 
@@ -720,13 +719,8 @@ class NavigatorPipecatRuntime:
         if not session_id:
             return
 
-        if self._session_manager.state == SessionState.SPEAKING:
-            self._playback_manager.notify_speech_detected()
-            self._session_manager.on_barge_in()
-            self._tracer.record("speaking_interrupted", session_id=session_id)
-            self._queue_frame_threadsafe(InterruptionFrame())
-        else:
-            self._session_manager.on_speech_start()
+        # Barge-in disabled — VAD is muted during SPEAKING to prevent echo. Re-enable when hardware echo cancellation is available.
+        self._session_manager.on_speech_start()
 
         self._session_manager.activity_ping()
         self._deepgram_adapter.connect()

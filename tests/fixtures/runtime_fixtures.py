@@ -9,7 +9,7 @@ from app.config.settings import get_settings
 from app.storage import bootstrap_schema, close_db, get_table_counts
 from app.storage.sync_csv import sync_all_csvs
 from app.utils.contracts import IntentClass, SessionState
-from app.vad.silero_vad import _END_OF_UTTERANCE_FRAMES
+# VAD silence threshold is now config-driven via vad._end_of_utterance_frames
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,7 +95,7 @@ async def simulate_user_turn(
     await asyncio.sleep(0.05)
 
     runtime.vad.set_mock_speech(False)
-    for _ in range(_END_OF_UTTERANCE_FRAMES):
+    for _ in range(runtime.vad._end_of_utterance_frames):
         runtime.process_audio_frame(b"\x00" * 1024)
 
     await asyncio.sleep(0.05)

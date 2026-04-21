@@ -341,11 +341,11 @@ class DeepgramStreamingClient:
         reintroduces Nova-3 keyterm prompting using Deepgram's supported
         `keyterm` parameter when campus hints are available.
         """
+        keyterm_options = self._build_nova3_keyterm_options()
         # Deepgram Nova-3 does not support `language="multi"` together with
-        # keyterm prompting. When keyterms are active, pin the live request to
-        # English and let downstream language detection fall back to the local
-        # Unicode heuristic when needed.
-        active_language = "en" if self._keyterms else self._deepgram_live_language
+        # outbound keyterm prompting. Decide from the payload that will actually
+        # be sent, not from locally loaded keyterms that may be disabled.
+        active_language = "en" if "keyterm" in keyterm_options else self._deepgram_live_language
 
         options = {
             "model": _DEEPGRAM_MODEL,
@@ -357,7 +357,7 @@ class DeepgramStreamingClient:
             "punctuate": True,
             "smart_format": True,
         }
-        options.update(self._build_nova3_keyterm_options())
+        options.update(keyterm_options)
         return options
 
     def _build_nova3_keyterm_options(self) -> dict[str, list[str]]:
