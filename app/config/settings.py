@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     edge_tts_rate: str = Field(default="-10%", description="Speech rate passed to edge-tts, for example -10% or +5%")
     default_language: str = Field(default="en", description="Fallback language code when detection is uncertain")
     deepgram_language: str = Field(default="multi", description="Deepgram streaming language setting")
+    deepgram_language_ar: str = Field(
+        default="ar-EG",
+        description="Deepgram language code for the dedicated Arabic STT connection",
+    )
 
     groq_model: str = Field(
         default="llama-3.1-8b-instant",

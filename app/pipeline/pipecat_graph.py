@@ -35,7 +35,8 @@ from app.actions.navigation_bridge import NavigationBridge
 from app.audio.mic_input import MicCapture
 from app.audio.session_manager import SessionManager
 from app.pipeline.controller import ConversationController
-from app.stt.deepgram_client import DeepgramStreamingClient, load_keyterms_from_db
+from app.stt.deepgram_client import DeepgramStreamingClient
+from app.stt.dual_stt_client import DualSTTClient
 from app.tts.edge_tts_client import EdgeTTSClient
 from app.tts.playback import PlaybackManager
 from app.utils.contracts import ResponsePacket, SessionState, TranscriptEvent
@@ -481,14 +482,13 @@ class NavigatorPipecatRuntime:
         self._tracer = NavigatorRuntimeTracer()
         self._observer = GraphTraceObserver()
 
-        keyterms = [] if mock else load_keyterms_from_db()
         fallback_groq = _FallbackGroqClient()
 
         self._session_manager = session_manager or SessionManager(on_timeout=self._on_session_timeout)
         self._mic = mic or MicCapture(mock=mock)
         self._wakeword = wakeword or WakeWordDetector(mock=mock)
         self._vad = vad or SileroVAD(mock=mock)
-        self._stt_client = stt_client or DeepgramStreamingClient(mock=mock, keyterms=keyterms)
+        self._stt_client = stt_client or DualSTTClient(mock=mock)
         self._controller = controller or ConversationController(groq=fallback_groq if mock else None)
         self._tts_client = tts_client or EdgeTTSClient(mock=mock)
         self._playback_manager = playback_manager or PlaybackManager(mock=mock)
