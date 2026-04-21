@@ -193,6 +193,16 @@ _OFFICE_HOURS_MAP_AR = ColumnMap(
     }
 )
 
+_ALIASES_MAP_EN = ColumnMap(
+    {
+        "canonical_type": "canonical_type",
+        "canonical_name": "canonical_name",
+        "alias_text": "alias_text",
+        "lang": "lang",
+    }
+)
+_ALIASES_MAP_AR = _ALIASES_MAP_EN
+
 
 def _start_log(conn: sqlite3.Connection, source_name: str, lang: str | None) -> int:
     cur = conn.execute(
@@ -604,6 +614,91 @@ def _sync_office_hours(
     return upserted, skipped, errored
 
 
+def _sync_aliases(
+    conn: sqlite3.Connection,
+    rows: list[dict[str, str]],
+    lang: str,
+    cm: ColumnMap,
+) -> tuple[int, int, int]:
+    """Sync CSV-backed aliases by resolving canonical names to IDs."""
+    upserted = skipped = errored = 0
+    for line_number, row in enumerate(rows, start=2):
+        canonical_type = cm.get(row, "canonical_type")
+        canonical_name = cm.get(row, "canonical_name")
+        alias_text = cm.get(row, "alias_text")
+        alias_lang = cm.get(row, "lang", lang) or lang
+        if not canonical_type or not canonical_name or not alias_text:
+            skipped += 1
+            continue
+        resolved = _resolve_canonical_for_alias(conn, canonical_type, canonical_name)
+        if resolved is None:
+            logger.warning(
+                "sync_alias_missing_canonical",
+                canonical_type=canonical_type,
+                canonical_name=canonical_name,
+                line=line_number,
+            )
+            skipped += 1
+            continue
+        try:
+            conn.execute(
+                """
+                INSERT INTO aliases (canonical_type, canonical_id, alias_text, normalized_alias, alias_text_norm, lang)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(canonical_type, canonical_id, normalized_alias, lang) DO UPDATE SET
+                    alias_text=excluded.alias_text,
+                    alias_text_norm=excluded.alias_text_norm
+                """,
+                (
+                    resolved[0],
+                    resolved[1],
+                    alias_text,
+                    normalize_query(alias_text, alias_lang),
+                    normalize_query(alias_text, alias_lang),
+                    alias_lang,
+                ),
+            )
+            upserted += 1
+        except sqlite3.Error as exc:
+            logger.error("sync_alias_error", line=line_number, error=str(exc))
+            errored += 1
+    return upserted, skipped, errored
+
+
+def _resolve_canonical_for_alias(
+    conn: sqlite3.Connection,
+    canonical_type: str,
+    canonical_name: str,
+) -> tuple[str, int] | None:
+    mapping = {
+        "room": ("rooms", "room_name"),
+        "lab": ("labs", "lab_name"),
+        "department": ("departments", "name"),
+        "landmark": ("landmarks", "landmark_name"),
+        "staff": ("staff", "full_name"),
+    }
+    search_order = [canonical_type] + [item for item in ("room", "lab", "department", "landmark", "staff") if item != canonical_type]
+    for entity_type in search_order:
+        if entity_type not in mapping:
+            continue
+        table, column = mapping[entity_type]
+        row = conn.execute(
+            f"SELECT id FROM {table} WHERE LOWER({column})=LOWER(?) ORDER BY CASE lang WHEN 'en' THEN 0 ELSE 1 END LIMIT 1",
+            (canonical_name,),
+        ).fetchone()
+        if row:
+            return entity_type, row["id"]
+        first_word = canonical_name.split()[0] if canonical_name.split() else ""
+        if len(first_word) >= 4:
+            row = conn.execute(
+                f"SELECT id FROM {table} WHERE LOWER({column}) LIKE LOWER(?) ORDER BY CASE lang WHEN 'en' THEN 0 ELSE 1 END LIMIT 1",
+                (f"%{first_word}%",),
+            ).fetchone()
+            if row:
+                return entity_type, row["id"]
+    return None
+
+
 @dataclass(frozen=True)
 class _CSVSpec:
     handler: Callable[[sqlite3.Connection, list[dict[str, str]], str, ColumnMap], tuple[int, int, int]]
@@ -619,9 +714,10 @@ _SPECS: dict[str, _CSVSpec] = {
     "landmarks": _CSVSpec(_sync_landmarks, _LANDMARKS_MAP_EN, _LANDMARKS_MAP_AR),
     "staff": _CSVSpec(_sync_staff_en, _STAFF_MAP_EN, _STAFF_MAP_AR),
     "office_hours": _CSVSpec(_sync_office_hours, _OFFICE_HOURS_MAP_EN, _OFFICE_HOURS_MAP_AR),
+    "aliases": _CSVSpec(_sync_aliases, _ALIASES_MAP_EN, _ALIASES_MAP_AR),
 }
 
-_SYNC_ORDER = ["floors", "departments", "rooms", "labs", "landmarks", "staff", "office_hours"]
+_SYNC_ORDER = ["floors", "departments", "rooms", "labs", "landmarks", "staff", "office_hours", "aliases"]
 _IGNORED_STEMS = {"buildings", "members", "navigation_paths"}
 
 

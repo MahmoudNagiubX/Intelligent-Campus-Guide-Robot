@@ -377,7 +377,16 @@ class TTSAdapter(FrameProcessor):
 
         if isinstance(frame, ResponsePacketFrame):
             packet = frame.packet
+            started = time.monotonic()
             audio = await self._tts.synthesize(packet.text, packet.language)
+            elapsed_ms = (time.monotonic() - started) * 1000
+            if elapsed_ms > 400:
+                logger.warning(
+                    "controller.latency_budget_exceeded",
+                    stage="tts",
+                    budget_ms=400,
+                    actual_ms=round(elapsed_ms),
+                )
             if not audio:
                 self._tracer.record(
                     "error_occurred",
@@ -670,6 +679,7 @@ class NavigatorPipecatRuntime:
         if state in (
             SessionState.WAKE_DETECTED,
             SessionState.LISTENING,
+            SessionState.SPEAKING,
             SessionState.INTERRUPTED,
         ):
             self._vad.process(frame)
@@ -719,7 +729,15 @@ class NavigatorPipecatRuntime:
         if not session_id:
             return
 
-        # Barge-in disabled — VAD is muted during SPEAKING to prevent echo. Re-enable when hardware echo cancellation is available.
+        if self._session_manager.state == SessionState.SPEAKING:
+            self._playback_manager.notify_speech_detected()
+            self._session_manager.on_barge_in()
+            self._tracer.record("speaking_interrupted", session_id=session_id)
+            self._deepgram_adapter.connect()
+            self._deepgram_adapter.reset_turn()
+            self._queue_frame_threadsafe(InterruptionFrame())
+            return
+
         self._session_manager.on_speech_start()
 
         self._session_manager.activity_ping()

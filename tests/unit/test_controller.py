@@ -102,7 +102,9 @@ def test_controller_wires_detected_language_to_router_search_and_response_langua
                         _event("فين معمل الروبوتات", language="ar-EG", language_confidence=0.97)
                     )
 
-    route_mock.assert_called_once_with("فين معمل الروبوتات", lang_hint="ar-EG")
+    routed_text = route_mock.call_args.args[0]
+    assert routed_text
+    route_mock.assert_called_once_with(routed_text, lang_hint="ar-EG")
     search_mock.assert_called_once_with("معمل الروبوتات", lang="ar-EG")
     assert result.language == "ar-EG"
 

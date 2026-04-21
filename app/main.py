@@ -8,6 +8,7 @@ This file bootstraps storage and then starts the live Pipecat runtime.
 from __future__ import annotations
 
 import asyncio
+import sys
 
 from app.config import get_settings
 from app.pipeline.pipecat_graph import NavigatorPipecatRuntime
@@ -28,7 +29,12 @@ def main() -> None:
             "navigator_starting",
             wake_word=cfg.wake_word,
             db_path=cfg.sqlite_db_path,
+            deepgram_key_set=cfg.has_deepgram_key,
+            elevenlabs_key_set=cfg.has_elevenlabs_key,
             groq_key_set=cfg.has_groq_key,
+            groq_model=cfg.groq_model,
+            tts_voice_ar=cfg.edge_tts_voice_ar,
+            tts_voice_en=cfg.edge_tts_voice_en,
         )
 
         bootstrap_schema()
@@ -39,7 +45,13 @@ def main() -> None:
 
         if not run_health_checks():
             logger.error("navigator_startup_blocked", reason="health_check_failed")
-            raise RuntimeError("Navigator health checks failed. Startup aborted.")
+            sys.exit(1)
+
+        from app.stt.deepgram_client import load_arabic_keyterms_from_db, load_keyterms_from_db
+
+        en_terms = load_keyterms_from_db()
+        ar_terms = load_arabic_keyterms_from_db()
+        logger.info("navigator_keyterms_loaded", english_count=len(en_terms), arabic_count=len(ar_terms))
 
         logger.info("navigator_boot_ok")
 

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.config.settings import get_settings
-from app.stt.deepgram_client import DeepgramStreamingClient, load_keyterms_from_db
+from app.stt.deepgram_client import DeepgramStreamingClient, load_arabic_keyterms_from_db, load_keyterms_from_db
 
 
 def _results_message(
@@ -77,7 +77,7 @@ def test_final_transcript_flush_forwards_detected_language_metadata() -> None:
     assert finals[0].language_confidence == 0.97
 
 
-def test_build_connect_options_uses_multi_language_for_live_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_connect_options_locks_language_to_en_in_dual_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPGRAM_LANGUAGE", "multi")
     get_settings.cache_clear()
     try:
@@ -86,7 +86,7 @@ def test_build_connect_options_uses_multi_language_for_live_mode(monkeypatch: py
     finally:
         get_settings.cache_clear()
 
-    assert options["language"] == "multi"
+    assert options["language"] == "en"
     assert options["model"] == "nova-3"
     assert "keyterm" not in options
 
@@ -95,7 +95,7 @@ def test_build_connect_options_forces_en_when_keyterm_payload_present(monkeypatc
     monkeypatch.setenv("DEEPGRAM_LANGUAGE", "multi")
     get_settings.cache_clear()
     try:
-        client = DeepgramStreamingClient(mock=True, language="ar-EG", keyterms=["Robotics Lab"])
+        client = DeepgramStreamingClient(mock=True, language="en", keyterms=["Robotics Lab"])
         monkeypatch.setattr(client, "_build_nova3_keyterm_options", lambda: {"keyterm": ["Robotics Lab"]})
         options = client._build_connect_options()
     finally:
@@ -106,6 +106,7 @@ def test_build_connect_options_forces_en_when_keyterm_payload_present(monkeypatc
 
 
 def test_load_keyterms_reads_new_bilingual_truth_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    load_keyterms_from_db.cache_clear()
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(
@@ -140,3 +141,39 @@ def test_load_keyterms_reads_new_bilingual_truth_tables(monkeypatch: pytest.Monk
     assert "Main Library" in terms
     assert "Dr. Sara Ali" in terms
     assert "robot room" in terms
+    load_keyterms_from_db.cache_clear()
+
+
+def test_load_arabic_keyterms_prefers_arabic_then_english(monkeypatch: pytest.MonkeyPatch) -> None:
+    load_keyterms_from_db.cache_clear()
+    load_arabic_keyterms_from_db.cache_clear()
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE rooms (id INTEGER PRIMARY KEY, room_name TEXT, is_active INTEGER, lang TEXT);
+        CREATE TABLE labs (id INTEGER PRIMARY KEY, lab_name TEXT, is_active INTEGER, lang TEXT);
+        CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT, is_active INTEGER, lang TEXT);
+        CREATE TABLE landmarks (id INTEGER PRIMARY KEY, landmark_name TEXT, is_active INTEGER, lang TEXT);
+        CREATE TABLE staff (id INTEGER PRIMARY KEY, full_name TEXT, is_active INTEGER, lang TEXT);
+        CREATE TABLE aliases (
+            id INTEGER PRIMARY KEY,
+            canonical_type TEXT,
+            canonical_id INTEGER,
+            alias_text TEXT,
+            lang TEXT
+        );
+        INSERT INTO labs VALUES (1, 'Robotics Lab', 1, 'en');
+        INSERT INTO labs VALUES (2, 'معمل الروبوتات', 1, 'ar');
+        INSERT INTO aliases VALUES (1, 'lab', 1, 'معمل الروبوت', 'ar');
+        """
+    )
+    monkeypatch.setattr("app.stt.deepgram_client.get_db", lambda: conn)
+
+    terms = load_arabic_keyterms_from_db()
+
+    assert terms[0] == "معمل الروبوتات"
+    assert "معمل الروبوت" in terms
+    assert "Robotics Lab" in terms
+    load_keyterms_from_db.cache_clear()
+    load_arabic_keyterms_from_db.cache_clear()

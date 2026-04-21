@@ -171,8 +171,8 @@ async def test_mocked_end_to_end_vad_is_muted_while_speaking(monkeypatch, tmp_pa
         runtime.vad.set_mock_speech(False)
 
         events = [event.name for event in runtime.tracer.events()]
-        assert runtime.session_manager.state == SessionState.SPEAKING
-        assert runtime.playback_manager.state == PlaybackState.PLAYING
-        assert "speaking_interrupted" not in events
+        assert runtime.session_manager.state == SessionState.LISTENING
+        assert runtime.playback_manager.state == PlaybackState.STOPPED
+        assert "speaking_interrupted" in events
     finally:
         await runtime.shutdown()

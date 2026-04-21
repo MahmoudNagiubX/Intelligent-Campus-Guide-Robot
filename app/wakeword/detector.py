@@ -32,9 +32,6 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-_COOLDOWN_SEC = 2.0
-
-
 class WakeWordDetector:
     """
     Always-on wake word listener.
@@ -54,6 +51,7 @@ class WakeWordDetector:
         self._wake_word_model_ref: str = self._resolve_model_reference(cfg.wake_word_model, self._wake_word)
         self._inference_framework: str = self._resolve_inference_framework(self._wake_word_model_ref)
         self._threshold: float = cfg.wake_word_threshold
+        self._cooldown_sec: float = cfg.wake_cooldown_sec
         self._mock = mock
         self._on_activated = on_activated or (lambda: None)
         self._running = False
@@ -143,7 +141,7 @@ class WakeWordDetector:
         if self._active_session:
             logger.debug("wakeword_suppressed_active_session")
             return
-        if now - self._last_trigger_time < _COOLDOWN_SEC:
+        if now - self._last_trigger_time < self._cooldown_sec:
             logger.debug("wakeword_suppressed_cooldown")
             return
 

@@ -43,6 +43,24 @@ def _compute_end_of_utterance_frames(
     return max(1, math.ceil(end_of_utterance_ms / frame_duration_ms))
 
 
+def _minimum_silero_samples(sample_rate: int) -> int:
+    """Minimum samples Silero accepts for one classifier call."""
+    if sample_rate <= 0:
+        return 1
+    return max(1, math.ceil(sample_rate / 31.25))
+
+
+def _pad_pcm_for_silero(pcm, sample_rate: int):
+    """Pad short PCM arrays for Silero classification only."""
+    min_samples = _minimum_silero_samples(sample_rate)
+    if len(pcm) >= min_samples:
+        return pcm
+
+    import numpy as np
+
+    return np.pad(pcm, (0, min_samples - len(pcm)), mode="constant")
+
+
 class SileroVAD:
     """
     Voice activity detector using the Silero VAD model.
@@ -69,7 +87,7 @@ class SileroVAD:
         cfg = get_settings()
         self._sample_rate = cfg.mic_sample_rate
         self._frame_size = cfg.mic_frame_size
-        self._threshold = threshold
+        self._threshold = cfg.vad_threshold if threshold == 0.5 else threshold
         self._mock = mock
         self._end_of_utterance_ms = cfg.vad_end_of_utterance_ms
         self._end_of_utterance_frames = _compute_end_of_utterance_frames(
@@ -189,6 +207,7 @@ class SileroVAD:
             import numpy as np
             import torch
             pcm = np.frombuffer(frame, dtype=np.int16).copy()
+            pcm = _pad_pcm_for_silero(pcm, self._sample_rate)
             audio_tensor = torch.from_numpy(pcm).float() / 32768.0
             prob = self._model(audio_tensor.unsqueeze(0), self._sample_rate).item()
             return prob >= self._threshold

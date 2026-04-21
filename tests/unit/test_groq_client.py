@@ -328,7 +328,7 @@ class TestCallRouter:
         result = groq_client.call_router(SYSTEM_PROMPT, TRANSCRIPT)
 
         assert result.intent == IntentClass.UNKNOWN
-        assert result.reason == "no_response"
+        assert result.reason == "timeout"
 
     def test_retry_success_after_one_timeout(
         self, groq_client: GroqClient

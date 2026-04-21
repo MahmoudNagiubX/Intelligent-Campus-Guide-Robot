@@ -7,16 +7,22 @@ retrieval or social handling, and returns a ResponsePacket for TTS/actions.
 
 from __future__ import annotations
 
+import json
+import time
 from collections.abc import Callable
 from dataclasses import replace
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 from app.config import get_settings
 from app.llm.groq_client import GroqClient
-from app.pipeline.language_detector import detect_language, lang_is_arabic
+from app.pipeline.arabic_normalizer import normalize_arabic_transcript, normalize_room_reference
+from app.pipeline.language_detector import LangResult, detect_language, lang_is_arabic
 from app.pipeline.response_composer import ResponseComposer
 from app.retrieval.search import normalize_query, search
 from app.routing.router import route
+from app.stt.dual_stt_client import _looks_like_phonetic_arabic
 from app.utils.contracts import IntentClass, IntentResult, ResponsePacket, RetrievalResult, TranscriptEvent
 from app.utils.logging import get_logger
 
@@ -25,6 +31,15 @@ logger = get_logger(__name__)
 _TRANSCRIPT_CORRECTIONS = {
     "robotic slab": "robotics lab",
     "robot room": "robotics lab",
+}
+_NOISE_WORDS = frozenset({"um", "uh", "hmm", "hm", "ah", "er", "mm", "oh"})
+_LATENCY_BUDGETS_MS = {
+    "stt_to_router": 50,
+    "router": 500,
+    "retrieval": 50,
+    "composer": 600,
+    "tts": 400,
+    "total": 1500,
 }
 _CORRECTION_MIN_CONFIDENCE = 0.82
 _CORRECTION_MIN_GAIN = 0.18
@@ -73,19 +88,55 @@ class ConversationController:
 
     def handle_transcript(self, event: TranscriptEvent) -> ResponsePacket:
         session_id = event.session_id
-        text = (event.text or "").strip()
+        raw_text = event.text or ""
+        text = raw_text.strip()
         cfg = get_settings()
+        turn_started = time.monotonic()
+        if len(text) < 2 or _is_noise_transcript(raw_text):
+            logger.debug("controller.transcript_skipped_noise", text=repr(raw_text), session_id=session_id)
+            return ResponsePacket(text="", language=cfg.default_language, session_id=session_id)
+
         detected_lang = detect_language(
-            text=text,
+            text=raw_text,
             deepgram_lang=event.language,
             deepgram_confidence=event.language_confidence,
+            confidence_threshold=cfg.lang_confidence_threshold,
             default_lang=cfg.default_language,
         )
+        if detected_lang.source == "stt_provider" and detected_lang.code == "en":
+            if event.source.startswith("deepgram") and _looks_like_phonetic_arabic(raw_text):
+                detected_lang = LangResult(code="ar", source="phonetic_heuristic", confidence=0.75)
+                logger.warning(
+                    "controller.lang_override_phonetic_arabic",
+                    original_text=raw_text[:60],
+                    session_id=session_id,
+                )
         language = detected_lang.code
+        logger.info(
+            "controller.lang_detected",
+            code=language,
+            source=detected_lang.source,
+            confidence=detected_lang.confidence,
+            stt_source=event.source,
+            session_id=session_id,
+        )
+
+        if lang_is_arabic(detected_lang):
+            routing_text = normalize_room_reference(normalize_arabic_transcript(raw_text))
+        else:
+            routing_text = normalize_room_reference(_apply_en_corrections(raw_text))
+
+        logger.info(
+            "controller.transcript_normalized",
+            raw=raw_text[:80],
+            normalized=routing_text[:80],
+            lang=language,
+            session_id=session_id,
+        )
 
         logger.info(
             "controller_turn_start",
-            text=text[:80],
+            text=raw_text[:80],
             language=language,
             language_source=detected_lang.source,
             session_id=session_id,
@@ -96,19 +147,22 @@ class ConversationController:
             self._trace_response(packet)
             return packet
 
-        pre_router_packet = self._pre_router_quality_gate(text, language, session_id)
+        pre_router_packet = self._pre_router_quality_gate(routing_text, language, session_id)
         if pre_router_packet is not None:
             self._trace_response(pre_router_packet)
             return pre_router_packet
 
         try:
+            _check_latency("stt_to_router", (time.monotonic() - turn_started) * 1000)
             packet = self._dispatch(
-                text=text,
+                text=routing_text,
+                raw_text=raw_text,
                 language=language,
                 session_id=session_id,
                 stt_confidence=event.confidence,
                 detected_language=detected_lang.code,
             )
+            _check_latency("total", (time.monotonic() - turn_started) * 1000)
             self._trace_response(packet)
             return packet
         except Exception as exc:
@@ -126,12 +180,15 @@ class ConversationController:
         self,
         *,
         text: str,
+        raw_text: str,
         language: str,
         session_id: Optional[str],
         stt_confidence: float,
         detected_language: str,
     ) -> ResponsePacket:
+        router_started = time.monotonic()
         intent_result = self._classify(text, detected_language, session_id)
+        _check_latency("router", (time.monotonic() - router_started) * 1000)
 
         logger.info(
             "controller_intent",
@@ -160,11 +217,11 @@ class ConversationController:
         intent_result = self._normalize_intent_query(intent_result, stt_confidence, language, session_id)
 
         if intent_result.intent == IntentClass.CAMPUS_QUERY:
-            return self._handle_campus_query(intent_result, text, language, session_id, stt_confidence)
+            return self._handle_campus_query(intent_result, raw_text, language, session_id, stt_confidence)
         if intent_result.intent == IntentClass.NAVIGATION_REQUEST:
-            return self._handle_navigation_request(intent_result, text, language, session_id, stt_confidence)
+            return self._handle_navigation_request(intent_result, raw_text, language, session_id, stt_confidence)
         if intent_result.intent == IntentClass.SOCIAL_CHAT:
-            return self._handle_social_chat(text, language, session_id)
+            return self._handle_social_chat(raw_text, language, session_id)
         return self._composer.compose_unknown_answer(language=language, session_id=session_id)
 
     def _handle_campus_query(
@@ -177,7 +234,9 @@ class ConversationController:
     ) -> ResponsePacket:
         query = intent_result.target_text or intent_result.raw_query or ""
         original_query = intent_result.raw_query or transcript_text or ""
+        retrieval_started = time.monotonic()
         query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
+        _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
         self._trace(
             "retrieval_finished",
             session_id,
@@ -196,12 +255,15 @@ class ConversationController:
         if clarification_packet is not None:
             return clarification_packet
 
-        return self._composer.compose_campus_answer(
+        composer_started = time.monotonic()
+        packet = self._composer.compose_campus_answer(
             retrieval=retrieval,
             original_query=original_query,
             language=language,
             session_id=session_id,
         )
+        _check_latency("composer", (time.monotonic() - composer_started) * 1000)
+        return packet
 
     def _handle_navigation_request(
         self,
@@ -213,7 +275,9 @@ class ConversationController:
     ) -> ResponsePacket:
         query = intent_result.target_text or intent_result.raw_query or ""
         original_query = intent_result.raw_query or transcript_text or ""
+        retrieval_started = time.monotonic()
         query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
+        _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
         self._trace(
             "retrieval_finished",
             session_id,
@@ -233,19 +297,33 @@ class ConversationController:
         if clarification_packet is not None:
             return clarification_packet
 
-        return self._composer.compose_navigation_answer(
+        composer_started = time.monotonic()
+        packet = self._composer.compose_navigation_answer(
             retrieval=retrieval,
             original_query=original_query,
             language=language,
             session_id=session_id,
         )
+        _check_latency("composer", (time.monotonic() - composer_started) * 1000)
+        return packet
 
     def _handle_social_chat(self, text: str, language: str, session_id: Optional[str]) -> ResponsePacket:
-        return self._composer.compose_social_answer(transcript=text, language=language, session_id=session_id)
+        composer_started = time.monotonic()
+        packet = self._composer.compose_social_answer(transcript=text, language=language, session_id=session_id)
+        _check_latency("composer", (time.monotonic() - composer_started) * 1000)
+        return packet
 
     def _classify(self, text: str, language: str, session_id: Optional[str]) -> IntentResult:
         try:
             return route(text, lang_hint=language)
+        except TimeoutError:
+            logger.warning("controller.router_timeout", session_id=session_id)
+            return IntentResult(
+                intent=IntentClass.UNKNOWN,
+                language=language,
+                raw_query=text,
+                reason="timeout",
+            )
         except Exception as exc:
             logger.error("controller_router_error", error=str(exc), session_id=session_id)
             self._trace("error_occurred", session_id, source="router", message=str(exc))
@@ -453,10 +531,53 @@ class ConversationController:
         try:
             self._trace_hook(event_name, session_id=session_id, **fields)
         except Exception as exc:
-            logger.debug("controller_trace_hook_error", event=event_name, error=str(exc))
+            logger.debug("controller_trace_hook_error", trace_event=event_name, error=str(exc))
 
 
 def _strip_like_core(text: str, language: str) -> str:
     from app.retrieval.search import _strip_filler
 
     return _strip_filler(text, language)
+
+
+@lru_cache(maxsize=1)
+def _load_en_corrections() -> dict[str, str]:
+    """Load English STT corrections from data/corrections_en.json."""
+    path = Path("data/corrections_en.json")
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {key: value for key, value in data.items() if not key.startswith("_")}
+
+
+def _apply_en_corrections(text: str) -> str:
+    """Apply configured English transcript corrections before routing."""
+    corrected = (text or "").lower()
+    for wrong, right in _load_en_corrections().items():
+        corrected = corrected.replace(wrong, right)
+    return corrected
+
+
+def _is_noise_transcript(text: str) -> bool:
+    """Return True for short filler, punctuation-only, or single-letter noise."""
+    stripped = (text or "").strip()
+    if len(stripped) < 2:
+        return True
+    if stripped.lower() in _NOISE_WORDS:
+        return True
+    if len(stripped) == 1 and "\u0600" <= stripped <= "\u06FF":
+        return True
+    non_punct = sum(1 for char in stripped if char.isalnum() or "\u0600" <= char <= "\u06FF")
+    return bool(stripped) and (non_punct / len(stripped)) < 0.20
+
+
+def _check_latency(stage: str, elapsed_ms: float) -> None:
+    """Warn when a hot-path stage exceeds its latency budget."""
+    budget = _LATENCY_BUDGETS_MS.get(stage)
+    if budget and elapsed_ms > budget:
+        logger.warning(
+            "controller.latency_budget_exceeded",
+            stage=stage,
+            budget_ms=budget,
+            actual_ms=round(elapsed_ms),
+        )

@@ -59,7 +59,7 @@ class GroqClient:
             raise RuntimeError("GROQ_API_KEY is not set - cannot initialize Groq client.")
 
         self._model: str = cfg.groq_model
-        self._timeout: float = cfg.groq_timeout
+        self._timeout: float = cfg.groq_timeout_sec
         self._max_retries: int = cfg.groq_max_retries
         self._retry_backoff: float = cfg.groq_retry_backoff
 
@@ -183,7 +183,7 @@ class GroqClient:
 
         if raw_json is None:
             logger.error("groq_router_no_response", transcript_preview=user_message[:80])
-            return _unknown_result(raw_query=user_message, reason="no_response")
+            return _unknown_result(raw_query=user_message, reason="timeout")
 
         try:
             data = json.loads(raw_json)

@@ -25,6 +25,7 @@ DDL: list[str] = [
         room          TEXT,
         head_room     TEXT,
         description   TEXT,
+        name_norm     TEXT,
         lang          TEXT    NOT NULL DEFAULT 'en',
         is_active     INTEGER NOT NULL DEFAULT 1,
         updated_at    TEXT,
@@ -37,6 +38,7 @@ DDL: list[str] = [
         room_type     TEXT,
         building_id   TEXT    NOT NULL,
         floor_id      TEXT,
+        room_name_norm TEXT,
         lang          TEXT    NOT NULL DEFAULT 'en',
         is_active     INTEGER NOT NULL DEFAULT 1,
         updated_at    TEXT,
@@ -50,6 +52,7 @@ DDL: list[str] = [
         floor_id      TEXT,
         room_id       TEXT,
         status        TEXT    DEFAULT 'Open',
+        lab_name_norm TEXT,
         lang          TEXT    NOT NULL DEFAULT 'en',
         is_active     INTEGER NOT NULL DEFAULT 1,
         updated_at    TEXT
@@ -70,6 +73,7 @@ DDL: list[str] = [
         building_id   TEXT,
         floor_id      TEXT,
         description   TEXT,
+        landmark_name_norm TEXT,
         lang          TEXT    NOT NULL DEFAULT 'en',
         is_active     INTEGER NOT NULL DEFAULT 1,
         updated_at    TEXT
@@ -82,6 +86,7 @@ DDL: list[str] = [
         department_code TEXT,
         office_room     TEXT,
         contact_notes   TEXT,
+        full_name_norm   TEXT,
         lang            TEXT    NOT NULL DEFAULT 'en',
         is_active       INTEGER NOT NULL DEFAULT 1,
         updated_at      TEXT
@@ -102,6 +107,7 @@ DDL: list[str] = [
         canonical_id     INTEGER NOT NULL,
         alias_text       TEXT NOT NULL,
         normalized_alias TEXT NOT NULL,
+        alias_text_norm  TEXT,
         lang             TEXT NOT NULL DEFAULT 'en',
         UNIQUE(canonical_type, canonical_id, normalized_alias, lang)
     )""",
@@ -169,6 +175,23 @@ INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_nav_targets_code ON navigation_targets(nav_code)",
 ]
 
+_NORMALIZED_COLS = [
+    ("labs", "lab_name_norm", "TEXT"),
+    ("rooms", "room_name_norm", "TEXT"),
+    ("departments", "name_norm", "TEXT"),
+    ("landmarks", "landmark_name_norm", "TEXT"),
+    ("staff", "full_name_norm", "TEXT"),
+    ("aliases", "alias_text_norm", "TEXT"),
+]
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+    """Add a column to a table only if it does not already exist."""
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        logger.info("schema_column_added", table=table, column=column)
+
 
 def bootstrap_schema() -> None:
     """Create all tables, indexes, and FTS virtual tables. Idempotent."""
@@ -176,6 +199,8 @@ def bootstrap_schema() -> None:
     logger.info("schema_bootstrap_start", statement_count=len(DDL) + len(INDEXES))
     for statement in DDL + INDEXES:
         conn.execute(statement)
+    for table, column, col_type in _NORMALIZED_COLS:
+        _add_column_if_missing(conn, table, column, col_type)
     conn.commit()
     logger.info("schema_bootstrap_complete")
 
@@ -186,12 +211,15 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
     Called after bulk CSV sync so FTS stays aligned with the truth layer.
     """
     db = conn or get_db()
+    _populate_normalized_arabic_columns(db)
 
     db.execute("DELETE FROM fts_departments")
     db.execute(
         """
         INSERT INTO fts_departments(rowid, code, name, building, room, lang)
-        SELECT id, code, COALESCE(name, ''), COALESCE(building, ''), COALESCE(room, ''), lang
+        SELECT id, code,
+               CASE WHEN lang='ar' THEN COALESCE(name_norm, name, '') ELSE COALESCE(name, '') END,
+               COALESCE(building, ''), COALESCE(room, ''), lang
         FROM departments
         WHERE is_active = 1
         """
@@ -201,7 +229,9 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
     db.execute(
         """
         INSERT INTO fts_rooms(rowid, room_number, room_name, room_type, building_id, lang)
-        SELECT id, room_number, room_name, COALESCE(room_type, ''), building_id, lang
+        SELECT id, room_number,
+               CASE WHEN lang='ar' THEN COALESCE(room_name_norm, room_name, '') ELSE COALESCE(room_name, '') END,
+               COALESCE(room_type, ''), building_id, lang
         FROM rooms
         WHERE is_active = 1
         """
@@ -211,7 +241,9 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
     db.execute(
         """
         INSERT INTO fts_labs(rowid, lab_name, room_id, building_id, lang)
-        SELECT id, lab_name, COALESCE(room_id, ''), building_id, lang
+        SELECT id,
+               CASE WHEN lang='ar' THEN COALESCE(lab_name_norm, lab_name, '') ELSE COALESCE(lab_name, '') END,
+               COALESCE(room_id, ''), building_id, lang
         FROM labs
         WHERE is_active = 1
         """
@@ -221,7 +253,9 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
     db.execute(
         """
         INSERT INTO fts_landmarks(rowid, landmark_name, description, building_id, lang)
-        SELECT id, landmark_name, COALESCE(description, ''), COALESCE(building_id, ''), lang
+        SELECT id,
+               CASE WHEN lang='ar' THEN COALESCE(landmark_name_norm, landmark_name, '') ELSE COALESCE(landmark_name, '') END,
+               COALESCE(description, ''), COALESCE(building_id, ''), lang
         FROM landmarks
         WHERE is_active = 1
         """
@@ -231,7 +265,9 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
     db.execute(
         """
         INSERT INTO fts_staff(rowid, full_name, title, department_code, office_room, lang)
-        SELECT id, full_name, COALESCE(title, ''), COALESCE(department_code, ''), COALESCE(office_room, ''), lang
+        SELECT id,
+               CASE WHEN lang='ar' THEN COALESCE(full_name_norm, full_name, '') ELSE COALESCE(full_name, '') END,
+               COALESCE(title, ''), COALESCE(department_code, ''), COALESCE(office_room, ''), lang
         FROM staff
         WHERE is_active = 1
         """
@@ -239,6 +275,29 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
 
     db.commit()
     logger.info("fts_rebuilt")
+
+
+def _populate_normalized_arabic_columns(db: sqlite3.Connection) -> None:
+    """Populate normalized Arabic columns before rebuilding FTS."""
+    from app.pipeline.arabic_normalizer import normalize_arabic_for_storage
+
+    updates = [
+        ("labs", "lab_name", "lab_name_norm"),
+        ("rooms", "room_name", "room_name_norm"),
+        ("departments", "name", "name_norm"),
+        ("landmarks", "landmark_name", "landmark_name_norm"),
+        ("staff", "full_name", "full_name_norm"),
+        ("aliases", "alias_text", "alias_text_norm"),
+    ]
+    for table, source_col, target_col in updates:
+        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if target_col not in columns:
+            continue
+        for row in db.execute(f"SELECT id, {source_col} AS value FROM {table} WHERE lang='ar'"):
+            db.execute(
+                f"UPDATE {table} SET {target_col}=? WHERE id=?",
+                (normalize_arabic_for_storage(row["value"] or ""), row["id"]),
+            )
 
 
 def rebuild_fts_indexes() -> None:

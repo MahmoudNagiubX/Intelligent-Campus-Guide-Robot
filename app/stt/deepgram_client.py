@@ -27,11 +27,13 @@ Mock mode:
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 import time
 import urllib.parse
 from collections import deque
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, Optional
 
 from app.config import get_settings
@@ -49,11 +51,7 @@ _DEEPGRAM_SAMPLE_RATE = 16000
 _DEEPGRAM_CHANNELS = 1
 _DEEPGRAM_KEEPALIVE_SEC = 4.0
 _PENDING_AUDIO_FRAMES_LIMIT = 1024
-_DEEPGRAM_MAX_KEYTERMS = 50
-_ENTITY_KEYTERM_LIMIT = 36
-_ALIAS_KEYTERM_LIMIT = 40
-_STAFF_KEYTERM_LIMIT = 20
-_ALIAS_BLACKLIST = {
+_KEYTERM_BLACKLIST: frozenset[str] = frozenset({
     "lab",
     "room",
     "office",
@@ -61,7 +59,14 @@ _ALIAS_BLACKLIST = {
     "building",
     "floor",
     "location",
-}
+    "hall",
+    "area",
+    "center",
+    "centre",
+})
+_KEYTERM_MIN_LEN = 3
+_KEYTERM_MAX_TOTAL = 100
+_ARABIC_SCRIPT = re.compile(r"[\u0600-\u06FF]")
 
 
 class DeepgramStreamingClient:
@@ -90,7 +95,7 @@ class DeepgramStreamingClient:
 
         self._api_key = cfg.deepgram_api_key
         self._language = language
-        self._deepgram_live_language = cfg.deepgram_language or language
+        self._deepgram_live_language = language or cfg.deepgram_language or "en"
         self._keyterms = keyterms or []
         self._mock = mock
         self._session_id = session_id
@@ -341,15 +346,9 @@ class DeepgramStreamingClient:
         reintroduces Nova-3 keyterm prompting using Deepgram's supported
         `keyterm` parameter when campus hints are available.
         """
-        keyterm_options = self._build_nova3_keyterm_options()
-        # Deepgram Nova-3 does not support `language="multi"` together with
-        # outbound keyterm prompting. Decide from the payload that will actually
-        # be sent, not from locally loaded keyterms that may be disabled.
-        active_language = "en" if "keyterm" in keyterm_options else self._deepgram_live_language
-
         options = {
-            "model": _DEEPGRAM_MODEL,
-            "language": active_language,
+            "model": get_settings().deepgram_model or _DEEPGRAM_MODEL,
+            "language": self._language,
             "encoding": _DEEPGRAM_ENCODING,
             "sample_rate": _DEEPGRAM_SAMPLE_RATE,
             "channels": _DEEPGRAM_CHANNELS,
@@ -357,6 +356,7 @@ class DeepgramStreamingClient:
             "punctuate": True,
             "smart_format": True,
         }
+        keyterm_options = self._build_nova3_keyterm_options()
         options.update(keyterm_options)
         return options
 
@@ -854,10 +854,14 @@ class DeepgramStreamingClient:
             logger.error("deepgram_error_callback_error", error=str(exc))
 
 
-def _append_keyterms(bucket: list[str], values: list[str], *, limit: int, seen: set[str]) -> None:
+def _append_keyterms(bucket: list[str], values: list[str], *, seen: set[str]) -> None:
     for raw_value in values:
         value = " ".join(str(raw_value).split()).strip()
         if not value:
+            continue
+        if len(value) < _KEYTERM_MIN_LEN:
+            continue
+        if value.casefold() in _KEYTERM_BLACKLIST:
             continue
 
         dedupe_key = value.casefold()
@@ -866,8 +870,6 @@ def _append_keyterms(bucket: list[str], values: list[str], *, limit: int, seen: 
 
         seen.add(dedupe_key)
         bucket.append(value)
-        if len(bucket) >= limit:
-            break
 
 
 def _load_column_values(conn, query: str) -> list[str]:
@@ -875,6 +877,7 @@ def _load_column_values(conn, query: str) -> list[str]:
     return [row[0] for row in rows if row and row[0]]
 
 
+@lru_cache(maxsize=1)
 def load_keyterms_from_db() -> list[str]:
     """
     Load STT keyterm hints from the SQLite truth layer.
@@ -887,73 +890,97 @@ def load_keyterms_from_db() -> list[str]:
     """
     try:
         conn = get_db()
-        high_priority_entities = _load_column_values(
-            conn,
-            """
-            SELECT room_name FROM rooms WHERE is_active=1
-            UNION ALL
-            SELECT lab_name FROM labs WHERE is_active=1
-            UNION ALL
-            SELECT name FROM departments WHERE is_active=1
-            UNION ALL
-            SELECT landmark_name FROM landmarks WHERE is_active=1;
-            """,
-        )
-        common_aliases = [
-            alias
-            for alias in _load_column_values(
+        groups = {
+            "staff": _load_column_values(
+                conn,
+                "SELECT full_name FROM staff WHERE is_active=1 AND lang='en' ORDER BY full_name ASC;",
+            ),
+            "labs": _load_column_values(
+                conn,
+                "SELECT lab_name FROM labs WHERE is_active=1 AND lang='en' ORDER BY lab_name ASC;",
+            ),
+            "rooms": _load_column_values(
+                conn,
+                "SELECT room_name FROM rooms WHERE is_active=1 AND lang='en' ORDER BY room_name ASC;",
+            ),
+            "departments": _load_column_values(
+                conn,
+                "SELECT name FROM departments WHERE is_active=1 AND lang='en' ORDER BY name ASC;",
+            ),
+            "landmarks": _load_column_values(
+                conn,
+                "SELECT landmark_name FROM landmarks WHERE is_active=1 AND lang='en' ORDER BY landmark_name ASC;",
+            ),
+            "aliases": _load_column_values(
                 conn,
                 """
-                SELECT alias_text
-                FROM aliases
-                WHERE canonical_type IN ('room', 'lab', 'department', 'landmark', 'staff')
-                ORDER BY LENGTH(alias_text) ASC, alias_text ASC;
+                SELECT alias_text FROM aliases
+                WHERE lang='en' AND canonical_type IN ('room', 'lab', 'department', 'landmark', 'staff')
+                ORDER BY LENGTH(alias_text) DESC, alias_text ASC;
                 """,
-            )
-            if alias.casefold() not in _ALIAS_BLACKLIST and len(alias.strip()) >= 3
-        ]
-        staff_names = _load_column_values(
-            conn,
-            "SELECT full_name FROM staff WHERE is_active=1 ORDER BY full_name ASC;",
-        )
+            ),
+        }
 
         seen_terms: set[str] = set()
-        entity_terms: list[str] = []
-        alias_terms: list[str] = []
-        staff_terms: list[str] = []
-
-        _append_keyterms(
-            entity_terms,
-            high_priority_entities,
-            limit=_ENTITY_KEYTERM_LIMIT,
-            seen=seen_terms,
-        )
-        _append_keyterms(
-            alias_terms,
-            common_aliases,
-            limit=min(_ALIAS_KEYTERM_LIMIT, _DEEPGRAM_MAX_KEYTERMS - len(entity_terms)),
-            seen=seen_terms,
-        )
-        _append_keyterms(
-            staff_terms,
-            staff_names,
-            limit=min(
-                _STAFF_KEYTERM_LIMIT,
-                _DEEPGRAM_MAX_KEYTERMS - len(entity_terms) - len(alias_terms),
-            ),
-            seen=seen_terms,
-        )
-        curated_terms = entity_terms + alias_terms + staff_terms
+        curated_terms: list[str] = []
+        group_counts: dict[str, int] = {}
+        for group_name in ("staff", "labs", "rooms", "departments", "landmarks", "aliases"):
+            before = len(curated_terms)
+            _append_keyterms(curated_terms, groups[group_name], seen=seen_terms)
+            group_counts[group_name] = len(curated_terms) - before
 
         logger.info(
             "deepgram_keyterms_loaded",
             count=len(curated_terms),
-            high_priority_count=len(entity_terms),
-            aliases_count=len(alias_terms),
-            staff_count=len(staff_terms),
+            **{f"{name}_count": count for name, count in group_counts.items()},
         )
-        return curated_terms[:_DEEPGRAM_MAX_KEYTERMS]
+        return curated_terms[:_KEYTERM_MAX_TOTAL]
 
     except Exception as exc:
         logger.error("deepgram_keyterms_load_error", error=str(exc))
+        return []
+
+
+@lru_cache(maxsize=1)
+def load_arabic_keyterms_from_db() -> list[str]:
+    """
+    Load campus terms for ElevenLabs Arabic keyword hints.
+    Returns Arabic-script terms first, then English campus entity names.
+    """
+    try:
+        conn = get_db()
+        queries = [
+            "SELECT full_name FROM staff WHERE is_active=1 AND lang='ar'",
+            "SELECT name FROM departments WHERE is_active=1 AND lang='ar'",
+            "SELECT lab_name FROM labs WHERE is_active=1 AND lang='ar'",
+            "SELECT landmark_name FROM landmarks WHERE is_active=1 AND lang='ar'",
+            "SELECT alias_text FROM aliases WHERE lang='ar'",
+        ]
+        seen: set[str] = set()
+        terms: list[str] = []
+        for query in queries:
+            for value in _load_column_values(conn, query):
+                term = " ".join(str(value).split()).strip()
+                if not term or not _ARABIC_SCRIPT.search(term):
+                    continue
+                key = term.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                terms.append(term)
+                if len(terms) >= _KEYTERM_MAX_TOTAL:
+                    return terms
+
+        for value in load_keyterms_from_db():
+            key = value.casefold()
+            if key not in seen:
+                seen.add(key)
+                terms.append(value)
+            if len(terms) >= _KEYTERM_MAX_TOTAL:
+                break
+
+        logger.info("elevenlabs_arabic_keyterms_loaded", count=len(terms))
+        return terms[:_KEYTERM_MAX_TOTAL]
+    except Exception as exc:
+        logger.error("elevenlabs_arabic_keyterms_load_error", error=str(exc))
         return []

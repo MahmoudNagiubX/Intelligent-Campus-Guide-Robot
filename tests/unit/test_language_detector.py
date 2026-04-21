@@ -7,7 +7,7 @@ def test_detect_language_trusts_deepgram_when_confident() -> None:
     result = detect_language("where is the robotics lab", deepgram_lang="en", deepgram_confidence=0.97)
 
     assert result.code == "en"
-    assert result.source == "deepgram"
+    assert result.source == "stt_provider"
     assert lang_is_english(result) is True
 
 

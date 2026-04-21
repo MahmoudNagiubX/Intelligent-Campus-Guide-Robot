@@ -64,7 +64,6 @@ class EdgeTTSClient:
         self._voice_en = cfg.edge_tts_voice_en    # "en-US-JennyNeural"
         self._voice_ar = cfg.edge_tts_voice_ar    # "ar-EG-ShakirNeural"
         self._rate = cfg.edge_tts_rate
-        self._rate_ar = cfg.edge_tts_rate_ar
         self._mock     = mock
 
         logger.info(
@@ -72,7 +71,6 @@ class EdgeTTSClient:
             voice_en=self._voice_en,
             voice_ar=self._voice_ar,
             rate=self._rate,
-            rate_ar=self._rate_ar,
             mock=self._mock,
         )
 
@@ -84,8 +82,6 @@ class EdgeTTSClient:
 
     def rate_for(self, language: str) -> str:
         """Return the speech rate for the given language code."""
-        if language.startswith("ar"):
-            return self._rate_ar
         return self._rate
 
     async def synthesize(self, text: str, language: str = "en") -> bytes:

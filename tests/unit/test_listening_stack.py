@@ -18,7 +18,7 @@ from app.audio.mic_input import MicCapture
 from app.config.settings import get_settings
 from app.audio.session_manager import SessionManager
 from app.utils.contracts import SessionState
-from app.vad.silero_vad import SileroVAD
+from app.vad.silero_vad import SileroVAD, _minimum_silero_samples, _pad_pcm_for_silero
 from app.wakeword.detector import WakeWordDetector
 
 
@@ -240,8 +240,9 @@ class TestSileroVADMock:
         get_settings.cache_clear()
         try:
             vad = self._make_vad()
-            assert vad._end_of_utterance_ms == 640
-            assert vad._end_of_utterance_frames == 20
+            assert vad._end_of_utterance_ms == get_settings().vad_silence_ms
+            expected_frames = -(-vad._end_of_utterance_ms // int((vad._frame_size / vad._sample_rate) * 1000))
+            assert vad._end_of_utterance_frames == expected_frames
         finally:
             get_settings.cache_clear()
 
@@ -254,10 +255,10 @@ class TestSileroVADMock:
 
             vad.set_mock_speech(True)
             vad.process(b"\x00" * 1024)
-            assert vad._end_of_utterance_frames == 3
+            assert vad._end_of_utterance_frames == 4
 
             vad.set_mock_speech(False)
-            for _ in range(2):
+            for _ in range(3):
                 vad.process(b"\x00" * 1024)
             assert ended == []
 
@@ -273,6 +274,18 @@ class TestSileroVADMock:
         assert vad.in_speech is True
         vad.reset()
         assert vad.in_speech is False
+
+    def test_real_frame_size_is_padded_for_silero_minimum(self):
+        import numpy as np
+
+        sample_rate = 16000
+        pcm = np.zeros(480, dtype=np.int16)
+
+        padded = _pad_pcm_for_silero(pcm, sample_rate)
+
+        assert _minimum_silero_samples(sample_rate) == 512
+        assert len(padded) == 512
+        assert np.array_equal(padded[:480], pcm)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

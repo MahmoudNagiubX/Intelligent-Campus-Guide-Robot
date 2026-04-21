@@ -1,0 +1,20 @@
+{
+  "_comment": "English transcript corrections applied before routing. Keys are lowercased spoken forms.",
+  "robotic slab": "robotics lab",
+  "robotic lab": "robotics lab",
+  "robot room": "robotics lab",
+  "robot lab": "robotics lab",
+  "compute lab": "computing lab",
+  "computer lab": "computing lab",
+  "computing laboratory": "computing lab",
+  "software lab": "software engineering lab",
+  "networking lab": "networks lab",
+  "doktor": "doctor",
+  "dr ": "Dr. ",
+  "professor ": "Prof. ",
+  "electron ic": "electronic",
+  "electron ics": "electronics",
+  "registrar office": "registrar's office",
+  "student affair": "student affairs",
+  "student service": "student services"
+}

@@ -11,18 +11,26 @@ import socket
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
+
+
+def emit(message: str = "") -> None:
+    sys.stdout.write(message + "\n")
 
 
 def check(name: str, fn) -> bool:
     try:
         result = bool(fn())
         status = "[PASS]" if result else "[FAIL]"
-        print(f"  {status}  {name}")
+        emit(f"  {status}  {name}")
         return result
     except Exception as exc:
-        print(f"  [FAIL]  {name} -- {exc}")
+        emit(f"  [FAIL]  {name} -- {exc}")
         return False
 
 
@@ -46,9 +54,9 @@ def _require_csv_directory(path: Path) -> bool:
 
 
 def run_health_checks() -> bool:
-    print("\n" + "=" * 40)
-    print("  Navigator - Pre-Flight Health Check")
-    print("=" * 40 + "\n")
+    emit("\n" + "=" * 40)
+    emit("  Navigator - Pre-Flight Health Check")
+    emit("=" * 40 + "\n")
 
     results: list[bool] = []
 
@@ -56,7 +64,7 @@ def run_health_checks() -> bool:
         from app.config import get_settings
 
         cfg = get_settings()
-        return bool(cfg.deepgram_api_key and cfg.groq_api_key)
+        return bool(cfg.deepgram_api_key and cfg.groq_api_key and cfg.elevenlabs_api_key)
 
     def check_sqlite() -> bool:
         from app.storage.db import get_db
@@ -95,6 +103,27 @@ def run_health_checks() -> bool:
         key = get_settings().groq_api_key
         return isinstance(key, str) and len(key) >= 20
 
+    def check_elevenlabs_key() -> bool:
+        from app.config import get_settings
+
+        key = get_settings().elevenlabs_api_key
+        return isinstance(key, str) and len(key) >= 20
+
+    def check_wake_word_model() -> bool:
+        from app.wakeword.detector import WakeWordDetector
+
+        WakeWordDetector(mock=True)
+        return True
+
+    def check_mic_accessible() -> bool:
+        import pyaudio
+
+        pa = pyaudio.PyAudio()
+        try:
+            return pa.get_device_count() > 0
+        finally:
+            pa.terminate()
+
     def check_prompts() -> bool:
         _require_non_empty_file(Path("prompts/campus_answer_prompt_en.txt"))
         _require_non_empty_file(Path("prompts/campus_answer_prompt_ar.txt"))
@@ -112,14 +141,17 @@ def run_health_checks() -> bool:
 
         return True
 
-    results.append(check("Config loads (DEEPGRAM_API_KEY, GROQ_API_KEY present)", check_config))
+    results.append(check("Config loads (DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, GROQ_API_KEY present)", check_config))
     results.append(check("SQLite database opens and schema exists", check_sqlite))
     results.append(check("English CSV directory exists and contains CSV files", check_csv_english_dir))
     results.append(check("Arabic CSV directory exists and contains CSV files", check_csv_arabic_dir))
     results.append(check("Internet reachable (DNS test)", check_internet))
     results.append(check("Deepgram API key format looks valid", check_deepgram_key_format))
+    results.append(check("ElevenLabs API key set", check_elevenlabs_key))
     results.append(check("Groq API key format looks valid", check_groq_key_format))
     results.append(check("Required prompt files exist and are non-empty", check_prompts))
+    results.append(check("Wake word model accessible", check_wake_word_model))
+    results.append(check("Microphone device accessible", check_mic_accessible))
     results.append(check("PyAudio installed (mic capture)", check_pyaudio))
     results.append(check("edge-tts installed (TTS output)", check_edge_tts))
 
@@ -127,13 +159,13 @@ def run_health_checks() -> bool:
     failed = sum(1 for item in results if not item)
     total = len(results)
 
-    print("\n" + "=" * 40)
-    print(f"  Result: {passed}/{total} checks passed")
+    emit("\n" + "=" * 40)
+    emit(f"  Result: {passed}/{total} checks passed")
     if failed == 0:
-        print("  [PASS] All checks passed. Navigator is ready to start.")
+        emit("  [PASS] All checks passed. Navigator is ready to start.")
     else:
-        print(f"  [FAIL] {failed} check(s) failed. Resolve the issues above before starting.")
-    print("=" * 40 + "\n")
+        emit(f"  [FAIL] {failed} check(s) failed. Resolve the issues above before starting.")
+    emit("=" * 40 + "\n")
 
     return failed == 0
 

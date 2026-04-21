@@ -9,9 +9,11 @@ English-only compatibility path plus bilingual aliases.
 from __future__ import annotations
 
 import sqlite3
+import re
 from dataclasses import dataclass
 from typing import Literal
 
+from app.pipeline.arabic_normalizer import normalize_arabic_transcript, normalize_room_reference
 from app.storage.db import get_db
 from app.utils.contracts import RetrievalResult, RetrievalStatus, SpokenFacts
 from app.utils.logging import get_logger
@@ -43,7 +45,9 @@ def normalize_query(text: str, lang: str = "en") -> str:
     Normalize a raw user query for retrieval matching.
     English text is lowercased for matching; Arabic text is preserved.
     """
-    value = " ".join((text or "").strip().split())
+    value = normalize_room_reference(" ".join((text or "").strip().split()))
+    if _lang_scope(lang) == "ar":
+        value = normalize_arabic_transcript(value)
     if not value:
         return ""
     cleaned = []
@@ -103,6 +107,15 @@ _FILLER_EN = {
     "my",
 }
 _FILLER_AR = {
+    "اين",
+    "فين",
+    "وين",
+    "متى",
+    "امتى",
+    "خذني",
+    "خدني",
+    "وديني",
+    "روحني",
     "فين",
     "في",
     "هو",
@@ -178,9 +191,11 @@ def _resolve_canonical_name(conn: sqlite3.Connection, entity_type: str, entity_i
 
 def _search_rooms(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
     results: list[_Candidate] = []
+    room_match = re.match(r"^room\s+([A-Za-z]?\d+[A-Za-z]?)$", q, flags=re.IGNORECASE)
+    room_number_query = room_match.group(1) if room_match else q
     for row in conn.execute(
         "SELECT * FROM rooms WHERE LOWER(room_number)=LOWER(?) AND lang=? AND is_active=1",
-        (q, lang),
+        (room_number_query, lang),
     ).fetchall():
         results.append(_Candidate("room", row["id"], row["room_name"], 1.0, "room_number"))
     if results:
@@ -456,7 +471,7 @@ _HYDRATORS = {
 }
 
 
-def search(
+def _search_in_lang(
     query: str,
     lang: str = "en",
     entity_type: EntityType = "any",
@@ -535,6 +550,28 @@ def search(
         normalized_query=normalized,
         nav_safety_notes=nav_safety_notes,
     )
+
+
+def search(
+    query: str,
+    lang: str = "en",
+    entity_type: EntityType = "any",
+    top_k: int = 3,
+) -> RetrievalResult:
+    """Search campus entities with Arabic normalization and cross-language fallback."""
+    normalized_query = normalize_room_reference(normalize_arabic_transcript(query) if lang.startswith("ar") else query)
+    result = _search_in_lang(normalized_query, lang=lang, entity_type=entity_type, top_k=top_k)
+    if result.status == RetrievalStatus.NOT_FOUND and lang.startswith("ar"):
+        fallback = _search_in_lang(normalized_query, lang="en", entity_type=entity_type, top_k=top_k)
+        if fallback.status == RetrievalStatus.OK:
+            logger.info(
+                "retrieval.cross_lang_fallback",
+                original_lang=lang,
+                fallback_lang="en",
+                query_preview=normalized_query[:40],
+            )
+            return fallback
+    return result
 
 
 def retrieve(query: str, lang: str = "en", entity_type: EntityType = "any") -> RetrievalResult:

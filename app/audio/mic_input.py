@@ -53,7 +53,8 @@ class MicCapture:
         self._sample_rate: int = cfg.mic_sample_rate        # Hz (16000)
         self._frame_size: int  = cfg.mic_frame_size         # samples per frame (512)
         self._channels: int    = cfg.mic_channels           # 1 = mono
-        self._device_index     = device_index or cfg.mic_device_index
+        configured_device = cfg.mic_device_index if device_index is None else device_index
+        self._device_index     = None if configured_device == -1 else configured_device
         self._mock             = mock
 
         self._queue: Queue[bytes] = Queue(maxsize=512)

@@ -30,12 +30,12 @@ def detect_language(
 ) -> LangResult:
     """Determine the language of one transcript."""
     if deepgram_lang:
-        dg_conf = deepgram_confidence if deepgram_confidence is not None else 1.0
-        if dg_conf >= confidence_threshold:
+        provider_conf = deepgram_confidence if deepgram_confidence is not None else 1.0
+        if provider_conf >= confidence_threshold:
             return LangResult(
                 code=_normalise_lang_code(deepgram_lang),
-                source="deepgram",
-                confidence=dg_conf,
+                source="stt_provider",
+                confidence=provider_conf,
             )
 
     if text:

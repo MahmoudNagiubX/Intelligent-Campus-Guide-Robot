@@ -1,8 +1,9 @@
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from app.stt.dual_stt_client import DualSTTClient
+from app.stt.dual_stt_client import DualSTTClient, _looks_like_phonetic_arabic
 from app.utils.contracts import TranscriptEvent
 
 
@@ -106,7 +107,7 @@ class FakeDeepgramStreamingClient:
             )
 
 
-class FakeWhisperArabicSTTClient(FakeDeepgramStreamingClient):
+class FakeElevenLabsArabicClient(FakeDeepgramStreamingClient):
     instances = []
 
     def __init__(
@@ -127,24 +128,24 @@ class FakeWhisperArabicSTTClient(FakeDeepgramStreamingClient):
             mock=mock,
             session_id=session_id,
         )
-        FakeWhisperArabicSTTClient.instances.append(self)
+        FakeElevenLabsArabicClient.instances.append(self)
 
 
 @pytest.fixture()
 def dual_client(monkeypatch):
     FakeDeepgramStreamingClient.instances = []
-    FakeWhisperArabicSTTClient.instances = []
+    FakeElevenLabsArabicClient.instances = []
     monkeypatch.setattr(
         "app.stt.dual_stt_client.DeepgramStreamingClient",
         FakeDeepgramStreamingClient,
     )
     monkeypatch.setattr(
-        "app.stt.dual_stt_client.WhisperArabicSTTClient",
-        FakeWhisperArabicSTTClient,
+        "app.stt.dual_stt_client.ElevenLabsArabicClient",
+        FakeElevenLabsArabicClient,
     )
     client = DualSTTClient(mock=True, session_id="session-1")
     en_client = next(c for c in FakeDeepgramStreamingClient.instances if c.language == "en")
-    ar_client = FakeWhisperArabicSTTClient.instances[0]
+    ar_client = FakeElevenLabsArabicClient.instances[0]
     return client, en_client, ar_client
 
 
@@ -169,6 +170,50 @@ def test_english_winner_selected_first(dual_client):
     assert finals[0].language == "en"
     assert finals[0].text == "where is the robotics lab"
     assert not en_client.disconnected
+
+
+def test_phonetic_english_waits_for_arabic_whisper(dual_client):
+    client, en_client, ar_client = dual_client
+    finals = []
+    client.set_callbacks(on_final=finals.append)
+
+    en_client.fire_final("wayn almaktab", confidence=0.92)
+    time.sleep(0.3)
+    assert finals == []
+
+    ar_client.fire_final("فين معمل الروبوتات", confidence=0.91)
+
+    wait_for(lambda: len(finals) == 1)
+    assert finals[0].language == "ar-EG"
+    assert finals[0].text == "فين معمل الروبوتات"
+
+
+def test_phonetic_english_commits_if_arabic_never_arrives(dual_client, monkeypatch):
+    client, en_client, _ar_client = dual_client
+    finals = []
+    monkeypatch.setattr(
+        "app.stt.dual_stt_client.get_settings",
+        lambda: SimpleNamespace(stt_arabic_hold_max_ms=50),
+    )
+    client.set_callbacks(on_final=finals.append)
+
+    en_client.fire_final("wayn almaktab", confidence=0.92)
+
+    wait_for(lambda: len(finals) == 1)
+    assert finals[0].language == "en"
+    assert finals[0].text == "wayn almaktab"
+
+
+def test_real_english_with_stop_word_does_not_wait(dual_client):
+    client, en_client, _ar_client = dual_client
+    finals = []
+    client.set_callbacks(on_final=finals.append)
+
+    en_client.fire_final("where lab", confidence=0.92)
+
+    wait_for(lambda: len(finals) == 1)
+    assert finals[0].language == "en"
+    assert finals[0].text == "where lab"
 
 
 def test_arabic_winner_selected_first(dual_client):
@@ -251,6 +296,48 @@ def test_disconnect_closes_both_clients(dual_client):
     assert ar_client.disconnected
 
 
+def test_session_level_dedup_same_text(dual_client):
+    client, en_client, _ar_client = dual_client
+    finals = []
+    client.set_callbacks(on_final=finals.append)
+
+    en_client.fire_final("where is the lab", confidence=0.95)
+    wait_for(lambda: len(finals) == 1)
+    client._winner_forwarded = False
+    en_client.fire_final("where is the lab", confidence=0.95)
+    time.sleep(0.05)
+
+    assert len(finals) == 1
+
+
+def test_session_level_dedup_similar_text(dual_client):
+    client, en_client, _ar_client = dual_client
+    finals = []
+    client.set_callbacks(on_final=finals.append)
+
+    en_client.fire_final("where is the lab", confidence=0.95)
+    wait_for(lambda: len(finals) == 1)
+    client._winner_forwarded = False
+    en_client.fire_final("where is the lab.", confidence=0.95)
+    time.sleep(0.05)
+
+    assert len(finals) == 1
+
+
+def test_reset_turn_clears_dedup(dual_client):
+    client, en_client, _ar_client = dual_client
+    finals = []
+    client.set_callbacks(on_final=finals.append)
+
+    en_client.fire_final("where is the lab", confidence=0.95)
+    wait_for(lambda: len(finals) == 1)
+    client.reset_turn()
+    en_client.fire_final("where is the lab", confidence=0.95)
+    wait_for(lambda: len(finals) == 2)
+
+    assert [event.text for event in finals] == ["where is the lab", "where is the lab"]
+
+
 def test_mock_inject_en(dual_client):
     client, en_client, ar_client = dual_client
     finals = []
@@ -295,3 +382,10 @@ def test_reset_clears_winner_state(dual_client):
     assert finals[1].language == "ar-EG"
     assert en_client.reset_count == 1
     assert ar_client.reset_count == 1
+
+
+def test_looks_like_phonetic_arabic_heuristic():
+    assert _looks_like_phonetic_arabic("wayn almaktab")
+    assert _looks_like_phonetic_arabic("fin maktab robot")
+    assert not _looks_like_phonetic_arabic("where is the lab")
+    assert not _looks_like_phonetic_arabic("please take me to the robotics lab")
