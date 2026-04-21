@@ -106,16 +106,45 @@ class FakeDeepgramStreamingClient:
             )
 
 
+class FakeWhisperArabicSTTClient(FakeDeepgramStreamingClient):
+    instances = []
+
+    def __init__(
+        self,
+        *,
+        on_partial=None,
+        on_final=None,
+        language="ar-EG",
+        keyterms=None,
+        mock=False,
+        session_id=None,
+    ):
+        super().__init__(
+            on_partial=on_partial,
+            on_final=on_final,
+            language=language,
+            keyterms=keyterms,
+            mock=mock,
+            session_id=session_id,
+        )
+        FakeWhisperArabicSTTClient.instances.append(self)
+
+
 @pytest.fixture()
 def dual_client(monkeypatch):
     FakeDeepgramStreamingClient.instances = []
+    FakeWhisperArabicSTTClient.instances = []
     monkeypatch.setattr(
         "app.stt.dual_stt_client.DeepgramStreamingClient",
         FakeDeepgramStreamingClient,
     )
+    monkeypatch.setattr(
+        "app.stt.dual_stt_client.WhisperArabicSTTClient",
+        FakeWhisperArabicSTTClient,
+    )
     client = DualSTTClient(mock=True, session_id="session-1")
     en_client = next(c for c in FakeDeepgramStreamingClient.instances if c.language == "en")
-    ar_client = next(c for c in FakeDeepgramStreamingClient.instances if c.language.startswith("ar"))
+    ar_client = FakeWhisperArabicSTTClient.instances[0]
     return client, en_client, ar_client
 
 

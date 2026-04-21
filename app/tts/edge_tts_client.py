@@ -7,7 +7,7 @@ Selects the correct neural voice based on the response language.
 
 Supported voices (locked MVP):
 - English: en-US-JennyNeural
-- Arabic:  ar-EG-SalmaNeural
+- Arabic:  ar-EG-ShakirNeural
 
 Usage:
     tts = EdgeTTSClient()
@@ -62,8 +62,9 @@ class EdgeTTSClient:
     def __init__(self, mock: bool = False) -> None:
         cfg = get_settings()
         self._voice_en = cfg.edge_tts_voice_en    # "en-US-JennyNeural"
-        self._voice_ar = cfg.edge_tts_voice_ar    # "ar-EG-SalmaNeural"
+        self._voice_ar = cfg.edge_tts_voice_ar    # "ar-EG-ShakirNeural"
         self._rate = cfg.edge_tts_rate
+        self._rate_ar = cfg.edge_tts_rate_ar
         self._mock     = mock
 
         logger.info(
@@ -71,14 +72,21 @@ class EdgeTTSClient:
             voice_en=self._voice_en,
             voice_ar=self._voice_ar,
             rate=self._rate,
+            rate_ar=self._rate_ar,
             mock=self._mock,
         )
 
     def voice_for(self, language: str) -> str:
         """Return the locked neural voice name for the given language code."""
-        if language in ("ar", "ar-EG", "ar-SA"):
+        if language.startswith("ar"):
             return self._voice_ar
         return self._voice_en
+
+    def rate_for(self, language: str) -> str:
+        """Return the speech rate for the given language code."""
+        if language.startswith("ar"):
+            return self._rate_ar
+        return self._rate
 
     async def synthesize(self, text: str, language: str = "en") -> bytes:
         """
@@ -97,10 +105,11 @@ class EdgeTTSClient:
             return b""
 
         voice = self.voice_for(language)
+        rate = self.rate_for(language)
         logger.info(
             "tts_synthesize",
             voice=voice,
-            rate=self._rate,
+            rate=rate,
             text_preview=text[:60],
             language=language,
         )
@@ -111,7 +120,7 @@ class EdgeTTSClient:
 
         try:
             import edge_tts  # type: ignore
-            communicate = edge_tts.Communicate(text=text, voice=voice, rate=self._rate)
+            communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate)
             audio_buf = io.BytesIO()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":

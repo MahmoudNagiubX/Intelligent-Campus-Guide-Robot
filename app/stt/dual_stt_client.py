@@ -16,6 +16,7 @@ from typing import Callable
 
 from app.config import get_settings
 from app.stt.deepgram_client import DeepgramStreamingClient
+from app.stt.whisper_arabic_client import WhisperArabicSTTClient
 from app.utils.contracts import TranscriptEvent
 from app.utils.logging import get_logger
 
@@ -55,13 +56,12 @@ class DualSTTClient:
             mock=mock,
             session_id=session_id,
         )
-        self._ar_client = DeepgramStreamingClient(
+        self._ar_client = WhisperArabicSTTClient(
             language=self._ar_language,
             mock=mock,
             session_id=session_id,
         )
         self._en_client._deepgram_live_language = self._en_language
-        self._ar_client._deepgram_live_language = self._ar_language
 
         self._on_partial = on_partial
         self._on_final = on_final

@@ -64,14 +64,25 @@ class Settings(BaseSettings):
         description="Deprecated compatibility alias for the old single CSV directory",
     )
 
-    edge_tts_voice_ar: str = Field(default="ar-EG-SalmaNeural", description="Arabic Egyptian TTS voice")
+    edge_tts_voice_ar: str = Field(default="ar-EG-ShakirNeural", description="Arabic Egyptian TTS voice")
     edge_tts_voice_en: str = Field(default="en-US-JennyNeural", description="English TTS voice")
     edge_tts_rate: str = Field(default="-10%", description="Speech rate passed to edge-tts, for example -10% or +5%")
+    edge_tts_rate_ar: str = Field(
+        default="+0%",
+        description="Speech rate for Arabic TTS. Arabic sounds more natural at default or slightly faster rate.",
+    )
     default_language: str = Field(default="en", description="Fallback language code when detection is uncertain")
     deepgram_language: str = Field(default="multi", description="Deepgram streaming language setting")
     deepgram_language_ar: str = Field(
         default="ar-EG",
         description="Deepgram language code for the dedicated Arabic STT connection",
+    )
+    whisper_arabic_model: str = Field(
+        default="small",
+        description=(
+            "faster-whisper model size for Arabic STT. Options: tiny, base, small, medium, large-v3. "
+            "small = good accuracy, ~1-2s on CPU. medium = better accuracy, ~3-4s on CPU."
+        ),
     )
 
     groq_model: str = Field(
