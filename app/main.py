@@ -19,6 +19,18 @@ from scripts.health_check import run_health_checks
 from app.utils.logging import get_logger, setup_logging
 
 
+def _prewarm_groq(logger) -> None:
+    """Warm the Groq HTTPS path without blocking startup on failure."""
+    try:
+        from app.routing.router import _get_groq
+
+        groq = _get_groq()
+        groq.complete_text(system_prompt="ping", user_message="ping", max_tokens=1)
+        logger.info("navigator_groq_prewarm_ok")
+    except Exception as exc:
+        logger.warning("navigator_groq_prewarm_failed", error=str(exc))
+
+
 def main() -> None:
     setup_logging()
     logger = get_logger(__name__)
@@ -52,6 +64,8 @@ def main() -> None:
         en_terms = load_keyterms_from_db()
         ar_terms = load_arabic_keyterms_from_db()
         logger.info("navigator_keyterms_loaded", english_count=len(en_terms), arabic_count=len(ar_terms))
+
+        _prewarm_groq(logger)
 
         logger.info("navigator_boot_ok")
 

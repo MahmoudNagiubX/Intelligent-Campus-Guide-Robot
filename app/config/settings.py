@@ -27,6 +27,10 @@ class Settings(BaseSettings):
         default="en",
         description='Deepgram language. Use "en" in dual STT mode; "multi" is only for standalone Deepgram.',
     )
+    deepgram_keyterm_prompting_enabled: bool = Field(
+        default=False,
+        description="Opt in to sending Nova-3 keyterm hints to Deepgram.",
+    )
 
     # ElevenLabs (Arabic specialist)
     elevenlabs_api_key: str = Field(
@@ -95,6 +99,7 @@ class Settings(BaseSettings):
     csv_english_dir: str = Field(default="data/csv_english", description="English CSV data directory")
     csv_arabic_dir: str = Field(default="data/csv_arabic", description="Arabic CSV data directory")
     csv_data_dir: str = Field(default="data/csv", description="Deprecated legacy CSV directory")
+    ecu_knowledge_path: str = Field(default="data/ecu_knowledge.json", description="Local ECU knowledge cache path")
 
     # Router/action/logging
     router_confidence_threshold: float = Field(default=0.75, ge=0.0, le=1.0)

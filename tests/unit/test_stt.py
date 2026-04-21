@@ -88,7 +88,23 @@ def test_build_connect_options_locks_language_to_en_in_dual_mode(monkeypatch: py
 
     assert options["language"] == "en"
     assert options["model"] == "nova-3"
+    assert options["endpointing"] == 300
+    assert options["utterance_end_ms"] == 1000
+    assert options["vad_events"] is True
+    assert "no_delay" not in options
     assert "keyterm" not in options
+
+
+def test_build_connect_options_keyterms_feature_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEPGRAM_KEYTERM_PROMPTING_ENABLED", "true")
+    get_settings.cache_clear()
+    try:
+        client = DeepgramStreamingClient(mock=True, language="en", keyterms=["Robotics Lab"])
+        options = client._build_connect_options()
+    finally:
+        get_settings.cache_clear()
+
+    assert options["keyterm"] == ["Robotics Lab"]
 
 
 def test_build_connect_options_forces_en_when_keyterm_payload_present(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,6 +157,7 @@ def test_load_keyterms_reads_new_bilingual_truth_tables(monkeypatch: pytest.Monk
     assert "Main Library" in terms
     assert "Dr. Sara Ali" in terms
     assert "robot room" in terms
+    assert "Egyptian Chinese University" in terms
     load_keyterms_from_db.cache_clear()
 
 

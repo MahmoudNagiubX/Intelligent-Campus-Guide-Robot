@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from app.pipeline.controller import ConversationController
 from app.pipeline.language_detector import LangResult
+from app.retrieval.hybrid_retriever import HybridResult
 from app.utils.contracts import (
     IntentClass,
     IntentResult,
@@ -58,18 +59,22 @@ class _GroqTextStub:
         return "المعمل في المبنى C." if any(ord(char) > 127 for char in system_prompt) else "The lab is in building C."
 
 
-def test_controller_calls_search_directly_for_campus_queries() -> None:
+def test_controller_calls_hybrid_for_english_campus_queries() -> None:
     controller = ConversationController(groq=_GroqTextStub())
 
     with patch("app.pipeline.controller.detect_language", return_value=LangResult("en", "deepgram", 0.99)):
         with patch("app.pipeline.controller.route", return_value=_intent(IntentClass.CAMPUS_QUERY)):
-            with patch("app.pipeline.controller.search", return_value=_retrieval_ok()) as search_mock:
+            with patch(
+                "app.pipeline.controller.retrieve_hybrid",
+                return_value=HybridResult(answered_by="db", db_result=_retrieval_ok()),
+            ) as hybrid_mock:
                 with patch("app.pipeline.response_composer._campus_prompt_for", return_value="{retrieval_facts}"):
                     result = controller.handle_transcript(_event("where is the robotics lab"))
 
     assert isinstance(result, ResponsePacket)
     assert result.language == "en"
-    search_mock.assert_called_once_with("Robotics Lab", lang="en")
+    hybrid_mock.assert_called_once()
+    assert hybrid_mock.call_args.args[0].best_entity == "Robotics Lab"
 
 
 def test_controller_wires_detected_language_to_router_search_and_response_language() -> None:
@@ -137,7 +142,10 @@ def test_controller_navigation_requires_trusted_nav_code() -> None:
             "app.pipeline.controller.route",
             return_value=_intent(IntentClass.NAVIGATION_REQUEST, target_text="Robotics Lab"),
         ):
-            with patch("app.pipeline.controller.search", return_value=_retrieval_ok(nav_code=None)):
+            with patch(
+                "app.pipeline.controller.retrieve_hybrid",
+                return_value=HybridResult(answered_by="db", db_result=_retrieval_ok(nav_code=None)),
+            ):
                 with patch("app.pipeline.response_composer._campus_prompt_for", return_value="{retrieval_facts}"):
                     result = controller.handle_transcript(_event("take me to the robotics lab"))
 
@@ -154,8 +162,26 @@ def test_controller_social_path_keeps_language_and_skips_search() -> None:
             return_value=_intent(IntentClass.SOCIAL_CHAT, language="ar", target_text=None, raw_query="ازيك"),
         ):
             with patch("app.pipeline.controller.search") as search_mock:
-                with patch("app.pipeline.response_composer._load_social_prompt", return_value="reply in same language"):
-                    result = controller.handle_transcript(_event("ازيك", language="ar-EG"))
+                with patch("app.pipeline.controller.retrieve_hybrid") as hybrid_mock:
+                    with patch("app.pipeline.response_composer._load_social_prompt", return_value="reply in same language"):
+                        result = controller.handle_transcript(_event("ازيك", language="ar-EG"))
 
     assert result.language == "ar-EG"
     search_mock.assert_not_called()
+    hybrid_mock.assert_not_called()
+
+
+def test_controller_unknown_bypasses_hybrid_retrieval() -> None:
+    controller = ConversationController(groq=_GroqTextStub())
+
+    with patch("app.pipeline.controller.detect_language", return_value=LangResult("en", "deepgram", 0.99)):
+        with patch(
+            "app.pipeline.controller.route",
+            return_value=_intent(IntentClass.UNKNOWN, target_text=None, raw_query="what is ECU known for"),
+        ):
+            with patch("app.pipeline.controller.retrieve_hybrid") as hybrid_mock:
+                result = controller.handle_transcript(_event("what is ECU known for"))
+
+    assert result.language == "en"
+    assert result.text
+    hybrid_mock.assert_not_called()

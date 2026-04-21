@@ -1,0 +1,92 @@
+{
+  "scraped_at": "2025-01-01T00:00:00",
+  "base_url": "https://ecu.edu.eg",
+  "entry_count": 12,
+  "note": "Seed data. Run scripts/scrape_ecu.py to refresh.",
+  "entries": [
+    {
+      "title": "Egyptian Chinese University",
+      "url": "https://ecu.edu.eg/",
+      "content": "ECU is a private Egyptian university located in Cairo, established under Egyptian law. It offers undergraduate and postgraduate programs across nine faculties.",
+      "keywords": ["ecu", "egyptian chinese university", "university", "cairo", "about"],
+      "category": "about"
+    },
+    {
+      "title": "Faculty of Engineering and Technology",
+      "url": "https://ecu.edu.eg/faculties/engineering-and-technology/",
+      "content": "The Faculty of Engineering and Technology offers programs in Software Engineering, Systems Engineering, and related disciplines.",
+      "keywords": ["engineering", "engineering faculty", "engineering and technology", "software engineering", "systems engineering", "faculty of engineering"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Computers and Information Systems",
+      "url": "https://ecu.edu.eg/faculties/computers-and-information-systems/",
+      "content": "The Faculty of Computers and Information Systems offers programs in Computer Science, Information Systems, and related computing disciplines.",
+      "keywords": ["computers", "computer science", "information systems", "cis", "faculty of computers", "computing"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Economics and International Trade",
+      "url": "https://ecu.edu.eg/faculties/economics-and-international-trade/",
+      "content": "The Faculty of Economics and International Trade offers programs in economics, business, and international trade.",
+      "keywords": ["economics", "international trade", "business", "faculty of economics", "trade"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Pharmacy and Drug Technology",
+      "url": "https://ecu.edu.eg/faculties/pharmacy-drug-technology/",
+      "content": "The Faculty of Pharmacy and Drug Technology offers pharmacy and pharmaceutical science programs.",
+      "keywords": ["pharmacy", "drug technology", "pharmaceutical", "faculty of pharmacy"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Physical Therapy",
+      "url": "https://ecu.edu.eg/faculties/physical-therapy/",
+      "content": "The Faculty of Physical Therapy offers programs in physiotherapy and rehabilitation sciences.",
+      "keywords": ["physical therapy", "physiotherapy", "pt", "rehabilitation", "faculty of physical therapy"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Arts and Design",
+      "url": "https://ecu.edu.eg/faculties/arts-and-design/",
+      "content": "The Faculty of Arts and Design offers programs in visual arts, graphic design, and related creative disciplines.",
+      "keywords": ["arts", "design", "graphic design", "visual arts", "arts and design", "faculty of arts"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Veterinary Medicine",
+      "url": "https://ecu.edu.eg/faculties/veterinary-medicine/",
+      "content": "The Faculty of Veterinary Medicine offers programs in veterinary science and animal health.",
+      "keywords": ["veterinary", "vet", "veterinary medicine", "animal health", "faculty of veterinary"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Mass Communication",
+      "url": "https://ecu.edu.eg/faculties/media/",
+      "content": "The Faculty of Mass Communication offers programs in journalism, media production, and communication studies.",
+      "keywords": ["mass communication", "media", "journalism", "communication", "faculty of media"],
+      "category": "faculty"
+    },
+    {
+      "title": "Faculty of Law",
+      "url": "https://ecu.edu.eg/faculties/law/",
+      "content": "The Faculty of Law offers programs in Egyptian and international law.",
+      "keywords": ["law", "legal", "faculty of law", "law school"],
+      "category": "faculty"
+    },
+    {
+      "title": "Contact Us",
+      "url": "https://ecu.edu.eg/contact-us/",
+      "content": "Contact ECU via the official website at ecu.edu.eg. The student portal is available at sis.ecu.edu.eg.",
+      "keywords": ["contact", "phone", "email", "address", "location", "reach", "student portal", "sis"],
+      "category": "contact"
+    },
+    {
+      "title": "Library",
+      "url": "https://ecu.edu.eg/library/",
+      "content": "ECU Library provides academic resources and study spaces for students and faculty.",
+      "keywords": ["library", "books", "academic resources", "study", "reading room"],
+      "category": "library"
+    }
+  ]
+}

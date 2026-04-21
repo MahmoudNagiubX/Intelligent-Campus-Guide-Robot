@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from collections.abc import Callable
 from dataclasses import replace
 from functools import lru_cache
@@ -19,7 +20,9 @@ from app.config import get_settings
 from app.llm.groq_client import GroqClient
 from app.pipeline.arabic_normalizer import normalize_arabic_transcript, normalize_room_reference
 from app.pipeline.language_detector import LangResult, detect_language, lang_is_arabic
+from app.pipeline.query_understander import understand
 from app.pipeline.response_composer import ResponseComposer
+from app.retrieval.hybrid_retriever import HybridResult, retrieve_hybrid
 from app.retrieval.search import normalize_query, search
 from app.routing.router import route
 from app.stt.dual_stt_client import _looks_like_phonetic_arabic
@@ -28,6 +31,7 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+_PREFLIGHT_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="db_preflight")
 _TRANSCRIPT_CORRECTIONS = {
     "robotic slab": "robotics lab",
     "robot room": "robotics lab",
@@ -222,7 +226,9 @@ class ConversationController:
             return self._handle_navigation_request(intent_result, raw_text, language, session_id, stt_confidence)
         if intent_result.intent == IntentClass.SOCIAL_CHAT:
             return self._handle_social_chat(raw_text, language, session_id)
-        return self._composer.compose_unknown_answer(language=language, session_id=session_id)
+        if language.startswith("ar"):
+            return self._composer.compose_unknown_answer(language=language, session_id=session_id)
+        return self._composer.compose_general_campus_answer(raw_text, language=language, session_id=session_id)
 
     def _handle_campus_query(
         self,
@@ -235,6 +241,12 @@ class ConversationController:
         query = intent_result.target_text or intent_result.raw_query or ""
         original_query = intent_result.raw_query or transcript_text or ""
         retrieval_started = time.monotonic()
+        if not language.startswith("ar"):
+            hybrid = self._resolve_hybrid_result(intent_result, original_query, language, session_id)
+            _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
+            self._trace_hybrid_result("campus", session_id, hybrid)
+            return self._compose_hybrid_campus_answer(hybrid, original_query, language, session_id)
+
         query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
         _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
         self._trace(
@@ -276,6 +288,12 @@ class ConversationController:
         query = intent_result.target_text or intent_result.raw_query or ""
         original_query = intent_result.raw_query or transcript_text or ""
         retrieval_started = time.monotonic()
+        if not language.startswith("ar"):
+            hybrid = self._resolve_hybrid_result(intent_result, original_query, language, session_id)
+            _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
+            self._trace_hybrid_result("navigation", session_id, hybrid)
+            return self._compose_hybrid_navigation_answer(hybrid, original_query, language, session_id)
+
         query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
         _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
         self._trace(
@@ -306,6 +324,81 @@ class ConversationController:
         )
         _check_latency("composer", (time.monotonic() - composer_started) * 1000)
         return packet
+
+    def _resolve_hybrid_result(
+        self,
+        intent_result: IntentResult,
+        original_query: str,
+        language: str,
+        session_id: Optional[str],
+    ) -> HybridResult:
+        understood = understand(
+            raw_query=original_query,
+            router_entity=intent_result.target_text or "",
+            router_confidence=intent_result.confidence,
+        )
+        future: Future[HybridResult] | None = None
+        try:
+            future = _PREFLIGHT_EXECUTOR.submit(retrieve_hybrid, understood, language)
+            return future.result(timeout=2.0)
+        except FutureTimeoutError:
+            logger.warning("controller.hybrid_preflight_timeout", session_id=session_id)
+        except Exception as exc:
+            logger.warning("controller.hybrid_preflight_failed", error=str(exc), session_id=session_id)
+        if future is not None:
+            future.cancel()
+        return retrieve_hybrid(understood, language)
+
+    def _compose_hybrid_campus_answer(
+        self,
+        hybrid: HybridResult,
+        original_query: str,
+        language: str,
+        session_id: Optional[str],
+    ) -> ResponsePacket:
+        composer_started = time.monotonic()
+        packet: ResponsePacket
+        if hybrid.answered_by == "db" and hybrid.db_result is not None:
+            packet = self._composer.compose_campus_answer(hybrid.db_result, original_query, language, session_id)
+        elif hybrid.answered_by == "clarification" and hybrid.db_result is not None:
+            packet = self._composer.compose_campus_answer(hybrid.db_result, original_query, language, session_id)
+        elif hybrid.answered_by == "ecu_web" and hybrid.ecu_result is not None:
+            packet = self._composer.compose_ecu_answer(hybrid.ecu_result, original_query, language, session_id)
+        else:
+            packet = self._composer.compose_general_campus_answer(original_query, language, session_id)
+        _check_latency("composer", (time.monotonic() - composer_started) * 1000)
+        return packet
+
+    def _compose_hybrid_navigation_answer(
+        self,
+        hybrid: HybridResult,
+        original_query: str,
+        language: str,
+        session_id: Optional[str],
+    ) -> ResponsePacket:
+        composer_started = time.monotonic()
+        if hybrid.answered_by == "db" and hybrid.db_result is not None:
+            packet = self._composer.compose_navigation_answer(hybrid.db_result, original_query, language, session_id)
+        elif hybrid.answered_by == "clarification" and hybrid.db_result is not None:
+            packet = self._composer.compose_navigation_answer(hybrid.db_result, original_query, language, session_id)
+        elif hybrid.answered_by == "ecu_web" and hybrid.ecu_result is not None:
+            packet = self._composer.compose_ecu_answer(hybrid.ecu_result, original_query, language, session_id)
+        else:
+            packet = self._composer.compose_general_campus_answer(original_query, language, session_id)
+        _check_latency("composer", (time.monotonic() - composer_started) * 1000)
+        return packet
+
+    def _trace_hybrid_result(self, path: str, session_id: Optional[str], hybrid: HybridResult) -> None:
+        db_result = hybrid.db_result
+        self._trace(
+            "retrieval_finished",
+            session_id,
+            path=path,
+            status=db_result.status.value if db_result else hybrid.answered_by,
+            entity=db_result.canonical_name if db_result else (hybrid.ecu_result.title if hybrid.ecu_result else None),
+            answered_by=hybrid.answered_by,
+            nav_code=db_result.nav_code if db_result else None,
+        )
 
     def _handle_social_chat(self, text: str, language: str, session_id: Optional[str]) -> ResponsePacket:
         composer_started = time.monotonic()

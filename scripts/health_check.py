@@ -129,6 +129,8 @@ def run_health_checks() -> bool:
         _require_non_empty_file(Path("prompts/campus_answer_prompt_ar.txt"))
         _require_non_empty_file(Path("prompts/social_prompt.txt"))
         _require_non_empty_file(Path("prompts/router_prompt.txt"))
+        _require_non_empty_file(Path("prompts/ecu_answer_prompt_en.txt"))
+        _require_non_empty_file(Path("prompts/general_campus_prompt_en.txt"))
         return True
 
     def check_pyaudio() -> bool:

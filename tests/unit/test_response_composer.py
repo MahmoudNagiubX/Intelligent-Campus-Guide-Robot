@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.pipeline.response_composer import ResponseComposer
+from app.retrieval.ecu_knowledge import ECUKnowledgeResult
 from app.utils.contracts import RetrievalResult, RetrievalStatus, SpokenFacts
 
 
@@ -49,7 +50,7 @@ def test_compose_campus_answer_calls_groq_for_english() -> None:
     assert "Type: Room" in call["system_prompt"]
     assert "Description: Lab" in call["system_prompt"]
     assert "Nav code: NAV_C105" in call["system_prompt"]
-    assert call["user_message"] in call["system_prompt"]
+    assert "where is the robotics lab" in call["user_message"]
 
 
 def test_compose_campus_answer_calls_groq_for_arabic() -> None:
@@ -82,7 +83,7 @@ def test_compose_campus_answer_calls_groq_for_arabic() -> None:
     assert "النوع: معمل" in call["system_prompt"]
     assert "الوصف: معمل" in call["system_prompt"]
     assert "رمز التوجيه: NAV_C105" in call["system_prompt"]
-    assert call["user_message"] in call["system_prompt"]
+    assert "فين" in call["user_message"]
 
 
 def test_compose_campus_answer_falls_back_when_groq_returns_empty() -> None:
@@ -109,3 +110,31 @@ def test_compose_social_answer_still_uses_groq() -> None:
 
     assert len(groq.text_calls) == 1
     assert packet.text == "Hey there!"
+
+
+def test_clean_spoken_english_removes_robotic_preamble() -> None:
+    groq = RecordingGroq("Sure! The Robotics Lab is in Building C. Let me know if you need anything else.")
+    composer = ResponseComposer(groq=groq)
+
+    packet = composer.compose_general_campus_answer("where is robotics", language="en")
+
+    assert packet.text == "The Robotics Lab is in Building C."
+
+
+def test_compose_ecu_answer_uses_ecu_context() -> None:
+    groq = RecordingGroq("ECU's website says the Faculty of Engineering offers software engineering.")
+    composer = ResponseComposer(groq=groq)
+
+    packet = composer.compose_ecu_answer(
+        ECUKnowledgeResult(
+            found=True,
+            title="Faculty of Engineering",
+            content="Engineering offers software engineering.",
+            source_url="https://ecu.edu.eg/",
+        ),
+        original_query="what does engineering offer",
+        language="en",
+    )
+
+    assert "Engineering" in packet.text
+    assert "Engineering offers software engineering" in groq.text_calls[0]["kwargs"]["system_prompt"]

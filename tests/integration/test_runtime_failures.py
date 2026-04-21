@@ -89,7 +89,7 @@ async def test_db_failure_returns_safe_response(monkeypatch, tmp_path):
     router_groq = make_router_mock(IntentClass.CAMPUS_QUERY, target_text="Robotics Lab", confidence=0.95)
     monkeypatch.setattr("app.routing.router._get_groq", lambda: router_groq)
     monkeypatch.setattr(
-        "app.pipeline.controller.search",
+        "app.retrieval.hybrid_retriever.search",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("db missing")),
     )
 
@@ -132,7 +132,9 @@ async def test_retrieval_not_found_returns_safe_bounded_answer(monkeypatch, tmp_
 
         response_events = [event for event in runtime.tracer.events() if event.name == "response_generated"]
         assert response_events
-        assert "could not find" in response_events[-1].data["text"].lower()
+        text = response_events[-1].data["text"].lower()
+        assert "could not find" not in text
+        assert "ecu.edu.eg" in text or "student affairs" in text
     finally:
         await runtime.shutdown()
 

@@ -8,11 +8,13 @@ use Groq to rewrite verified retrieval facts into short natural speech.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 from app.llm.groq_client import GroqClient
+from app.retrieval.ecu_knowledge import ECUKnowledgeResult
 from app.utils.contracts import NavigationCommand, ResponsePacket, RetrievalResult, RetrievalStatus, SpokenFacts
 from app.utils.logging import get_logger
 
@@ -30,6 +32,27 @@ _FALLBACK_SOCIAL_EN = "Hey! How can I help you today?"
 _FALLBACK_SOCIAL_AR = "أهلاً! أقدر أساعدك بإيه؟"
 _NAV_OFFER_EN = "I can guide you there if you'd like."
 _NAV_OFFER_AR = "أقدر آخدك هناك لو حابب."
+_ROBOTIC_PREAMBLES_EN = [
+    "certainly! ",
+    "certainly, ",
+    "of course! ",
+    "of course, ",
+    "sure! ",
+    "sure, ",
+    "absolutely! ",
+    "absolutely, ",
+    "great question! ",
+    "great question, ",
+    "i'd be happy to help! ",
+    "i'd be happy to help, ",
+    "based on the data",
+    "according to my records",
+    "according to the information",
+    "based on the information",
+    "i've found that ",
+    "i can see that ",
+    "it appears that ",
+]
 
 _ENTITY_TYPE_LABEL_EN = {
     "room": "Room",
@@ -85,6 +108,22 @@ def _load_social_prompt() -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+@lru_cache(maxsize=1)
+def _load_ecu_prompt_en() -> str:
+    path = Path("prompts/ecu_answer_prompt_en.txt")
+    if not path.exists():
+        raise FileNotFoundError(f"ECU English prompt not found at {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
+@lru_cache(maxsize=1)
+def _load_general_campus_prompt_en() -> str:
+    path = Path("prompts/general_campus_prompt_en.txt")
+    if not path.exists():
+        raise FileNotFoundError(f"General campus English prompt not found at {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
 def _campus_prompt_for(language: str) -> str:
     return _load_campus_prompt_ar() if _is_arabic(language) else _load_campus_prompt_en()
 
@@ -112,14 +151,14 @@ class ResponseComposer:
             return ResponsePacket(text=text, language=language, session_id=session_id)
 
         facts_block = self._format_facts_block(retrieval, language)
-        prompt = self._render_prompt_template(_campus_prompt_for(language), facts_block)
+        prompt = self._render_prompt_template(_campus_prompt_for(language), facts_block, question=original_query)
         try:
             raw = self._groq.complete_text(
                 system_prompt=prompt,
-                user_message=facts_block,
+                user_message=f"Question: {original_query}\n\nFacts:\n{facts_block}",
                 max_tokens=180,
             )
-            spoken = self._clean_spoken(raw or "")
+            spoken = self._clean_spoken(raw or "", language)
         except Exception as exc:
             logger.error("composer_campus_llm_error", error=str(exc))
             spoken = ""
@@ -182,7 +221,7 @@ class ResponseComposer:
         try:
             prompt = _load_social_prompt()
             raw = self._groq.complete_text(system_prompt=prompt, user_message=transcript, max_tokens=120)
-            spoken = self._clean_spoken(raw or "")
+            spoken = self._clean_spoken(raw or "", language)
         except Exception as exc:
             logger.error("composer_social_llm_error", error=str(exc))
             spoken = ""
@@ -194,6 +233,59 @@ class ResponseComposer:
     def compose_unknown_answer(self, language: str = "en", session_id: Optional[str] = None) -> ResponsePacket:
         text = _FALLBACK_UNKNOWN_AR if _is_arabic(language) else _FALLBACK_UNKNOWN_EN
         return ResponsePacket(text=text, language=language, session_id=session_id)
+
+    def compose_ecu_answer(
+        self,
+        ecu_result: ECUKnowledgeResult,
+        original_query: str,
+        language: str = "en",
+        session_id: Optional[str] = None,
+    ) -> ResponsePacket:
+        """Compose an English response from the local ECU website cache."""
+        if _is_arabic(language):
+            return self.compose_unknown_answer(language=language, session_id=session_id)
+
+        context = self._format_ecu_context(ecu_result)
+        prompt = _load_ecu_prompt_en().replace("{context}", context)
+        try:
+            raw = self._groq.complete_text(
+                system_prompt=prompt,
+                user_message=f"Question: {original_query}\n\nContext:\n{context}",
+                max_tokens=180,
+            )
+            spoken = self._clean_spoken(raw or "", language)
+        except Exception as exc:
+            logger.error("composer_ecu_llm_error", error=str(exc))
+            spoken = ""
+
+        if not spoken:
+            spoken = ecu_result.content or "I found relevant ECU information, but I do not have a concise detail to say yet."
+        return ResponsePacket(text=spoken, language=language, session_id=session_id)
+
+    def compose_general_campus_answer(
+        self,
+        original_query: str,
+        language: str = "en",
+        session_id: Optional[str] = None,
+    ) -> ResponsePacket:
+        """Compose an honest English campus response without DB facts."""
+        if _is_arabic(language):
+            return self.compose_unknown_answer(language=language, session_id=session_id)
+
+        try:
+            raw = self._groq.complete_text(
+                system_prompt=_load_general_campus_prompt_en(),
+                user_message=original_query,
+                max_tokens=180,
+            )
+            spoken = self._clean_spoken(raw or "", language)
+        except Exception as exc:
+            logger.error("composer_general_campus_llm_error", error=str(exc))
+            spoken = ""
+
+        if not spoken:
+            spoken = "I don't have that specific detail. You can check ecu.edu.eg or ask at the student affairs office."
+        return ResponsePacket(text=spoken, language=language, session_id=session_id)
 
     def compose_quality_clarification(
         self,
@@ -260,10 +352,20 @@ class ResponseComposer:
         return "\n".join(facts)
 
     @staticmethod
-    def _render_prompt_template(prompt: str, facts_block: str) -> str:
+    def _render_prompt_template(prompt: str, facts_block: str, question: str = "") -> str:
         rendered = prompt.replace("{facts}", facts_block)
         rendered = rendered.replace("{retrieval_facts}", facts_block)
+        rendered = rendered.replace("{question}", question)
         return rendered
+
+    @staticmethod
+    def _format_ecu_context(ecu_result: ECUKnowledgeResult) -> str:
+        parts = [
+            ("Title", ecu_result.title),
+            ("Content", ecu_result.content),
+            ("Source", ecu_result.source_url),
+        ]
+        return "\n".join(f"{label}: {value}" for label, value in parts if value)
 
     def _facts_map(self, retrieval: RetrievalResult, language: str) -> list[tuple[str, Optional[str]]]:
         facts = retrieval.spoken_facts
@@ -349,17 +451,39 @@ class ResponseComposer:
         return sentence
 
     @staticmethod
-    def _clean_spoken(raw: str) -> str:
+    def _clean_spoken(raw: str, language: str = "en") -> str:
         text = raw.strip()
         if text.startswith("{"):
             try:
                 data = json.loads(text)
                 for key in ("text", "response", "answer", "reply", "message"):
                     if key in data:
-                        return str(data[key]).strip()
+                        text = str(data[key]).strip()
+                        break
             except json.JSONDecodeError:
                 pass
         if text.startswith("```"):
             lines = text.splitlines()
             text = "\n".join(line for line in lines if not line.startswith("```")).strip()
+        if not _is_arabic(language):
+            text = _clean_spoken_en(text)
         return text
+
+
+def _clean_spoken_en(text: str) -> str:
+    """Remove robotic preambles and cleanup English TTS text."""
+    cleaned = text.strip()
+    lowered = cleaned.lower()
+    for preamble in _ROBOTIC_PREAMBLES_EN:
+        if lowered.startswith(preamble):
+            cleaned = cleaned[len(preamble) :].lstrip(", ")
+            if cleaned:
+                cleaned = cleaned[0].upper() + cleaned[1:]
+            break
+    cleaned = re.sub(
+        r"\s+(?:is there anything else|can i help you with anything else|let me know if you need|feel free to ask)[^.]*\.?$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    return cleaned

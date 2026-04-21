@@ -67,6 +67,47 @@ _KEYTERM_BLACKLIST: frozenset[str] = frozenset({
 _KEYTERM_MIN_LEN = 3
 _KEYTERM_MAX_TOTAL = 100
 _ARABIC_SCRIPT = re.compile(r"[\u0600-\u06FF]")
+_ECU_STATIC_KEYTERMS: list[str] = [
+    "ECU",
+    "Egyptian Chinese University",
+    "Faculty of Engineering",
+    "Engineering Faculty",
+    "Faculty of Computers",
+    "Computer Science Faculty",
+    "CIS Faculty",
+    "Faculty of Economics",
+    "Economics Faculty",
+    "Faculty of Pharmacy",
+    "Pharmacy Faculty",
+    "Faculty of Physical Therapy",
+    "PT Faculty",
+    "Faculty of Arts and Design",
+    "Arts Faculty",
+    "Faculty of Veterinary",
+    "Vet Faculty",
+    "Faculty of Mass Communication",
+    "Media Faculty",
+    "Faculty of Law",
+    "Law Faculty",
+    "Student Affairs",
+    "Registrar",
+    "Dean's Office",
+    "Research and Innovation Center",
+    "R&I Center",
+    "Student Portal",
+    "Academic Calendar",
+    "Software Engineering",
+    "Systems Engineering",
+    "Robotics",
+    "Machine Vision",
+    "Computer Networks",
+    "Data Science",
+    "Artificial Intelligence",
+    "Doctor",
+    "Professor",
+    "Dr.",
+    "Prof.",
+]
 
 
 class DeepgramStreamingClient:
@@ -355,6 +396,9 @@ class DeepgramStreamingClient:
             "interim_results": True,
             "punctuate": True,
             "smart_format": True,
+            "utterance_end_ms": 1000,
+            "vad_events": True,
+            "endpointing": 300,
         }
         keyterm_options = self._build_nova3_keyterm_options()
         options.update(keyterm_options)
@@ -362,11 +406,12 @@ class DeepgramStreamingClient:
 
     def _build_nova3_keyterm_options(self) -> dict[str, list[str]]:
         """
-        Prepare the correct Nova-3 keyterm shape for a future opt-in rollout.
+        Prepare the Nova-3 keyterm option when explicitly enabled.
         """
-        # keyterm prompting disabled — not supported on current Deepgram account tier; causes 'vary' SDK crash on connect.
-        return {}
-
+        if not get_settings().deepgram_keyterm_prompting_enabled:
+            return {}
+        terms = self._keyterms[:_KEYTERM_MAX_TOTAL]
+        return {"keyterm": terms} if terms else {}
     # Transcript routing -------------------------------------------------
 
     def _handle_partial(self, event: TranscriptEvent) -> None:
@@ -928,10 +973,13 @@ def load_keyterms_from_db() -> list[str]:
             before = len(curated_terms)
             _append_keyterms(curated_terms, groups[group_name], seen=seen_terms)
             group_counts[group_name] = len(curated_terms) - before
+        before_static = len(curated_terms)
+        _append_keyterms(curated_terms, _ECU_STATIC_KEYTERMS, seen=seen_terms)
+        group_counts["ecu_static"] = len(curated_terms) - before_static
 
         logger.info(
             "deepgram_keyterms_loaded",
-            count=len(curated_terms),
+            count=min(len(curated_terms), _KEYTERM_MAX_TOTAL),
             **{f"{name}_count": count for name, count in group_counts.items()},
         )
         return curated_terms[:_KEYTERM_MAX_TOTAL]
