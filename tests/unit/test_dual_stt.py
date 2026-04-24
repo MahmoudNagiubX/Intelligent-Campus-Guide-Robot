@@ -94,17 +94,21 @@ class FakeDeepgramStreamingClient:
                 )
             )
 
-    def fire_final(self, text, confidence=0.95):
+    def fire_final(self, text, confidence=0.95, language=None):
         if self._on_final:
             self._on_final(
                 TranscriptEvent(
                     text=text,
                     is_final=True,
-                    language=self.language,
+                    language=language or self.language,
                     confidence=confidence,
                     session_id=self._session_id,
                 )
             )
+
+    def fire_error(self, reason="error", message="server rejected WebSocket connection: HTTP 403"):
+        if self._on_error:
+            self._on_error(reason, message)
 
 
 class FakeElevenLabsArabicClient(FakeDeepgramStreamingClient):
@@ -133,6 +137,7 @@ class FakeElevenLabsArabicClient(FakeDeepgramStreamingClient):
 
 @pytest.fixture()
 def dual_client(monkeypatch):
+    monkeypatch.setattr("app.stt.dual_stt_client._elevenlabs_permanently_disabled", False)
     FakeDeepgramStreamingClient.instances = []
     FakeElevenLabsArabicClient.instances = []
     monkeypatch.setattr(
@@ -285,6 +290,63 @@ def test_connect_opens_both_clients(dual_client):
 
     assert en_client.connected
     assert ar_client.connected
+
+
+def test_connect_is_idempotent_and_does_not_reset_winner_state(dual_client):
+    client, en_client, _ar_client = dual_client
+    client.connect()
+    client._winner_language = "en"
+    client._winner_forwarded = True
+
+    client.connect()
+
+    assert en_client.connected
+    assert client._winner_language == "en"
+    assert client._winner_forwarded is True
+
+
+def test_arabic_connected_callback_resets_403_count(dual_client):
+    client, en_client, ar_client = dual_client
+
+    ar_client._on_connected = None
+    client._el_consecutive_failures = 1
+    client.connect()
+
+    assert en_client.connected
+    assert ar_client.connected
+    assert client._el_consecutive_failures == 1
+
+    client._handle_arabic_connected()
+
+    assert client._el_consecutive_failures == 0
+
+
+def test_elevenlabs_403_switches_deepgram_to_multi_after_threshold(dual_client):
+    client, en_client, ar_client = dual_client
+
+    ar_client.fire_error(message="server rejected WebSocket connection: HTTP 403")
+    assert client._deepgram_fallback_to_multi is False
+    ar_client.fire_error(message="server rejected WebSocket connection: HTTP 403")
+
+    assert client._deepgram_fallback_to_multi is True
+    assert ar_client._permanently_disabled is True
+    assert en_client.disconnected is True
+    assert client._deepgram_client.language == "multi"
+    assert client._deepgram_client.connected is True
+
+
+def test_deepgram_multi_preserves_arabic_language_after_fallback(dual_client):
+    client, _en_client, ar_client = dual_client
+    finals = []
+    client.set_callbacks(on_final=finals.append)
+    ar_client.fire_error(message="server rejected WebSocket connection: HTTP 403")
+    ar_client.fire_error(message="server rejected WebSocket connection: HTTP 403")
+
+    client._deepgram_client.fire_final("فين معمل الروبوتات", confidence=0.95, language="ar-EG")
+
+    wait_for(lambda: len(finals) == 1)
+    assert finals[0].language == "ar-EG"
+    assert finals[0].source == "deepgram"
 
 
 def test_disconnect_closes_both_clients(dual_client):

@@ -18,24 +18,46 @@ _ALEF_VARIANTS = str.maketrans(
         "\u0625": "\u0627",
         "\u0622": "\u0627",
         "\u0671": "\u0627",
+        "\u0649": "\u064A",
     }
 )
 _SPOKEN_VARIANTS: dict[str, str] = {
-    "فين": "أين",
-    "وين": "أين",
+    "فين": "اين",
+    "وين": "اين",
     "امتى": "متى",
     "ازاي": "كيف",
     "ازيك": "كيف حالك",
     "ايه": "ما",
-    "إيه": "ما",
-    "عايز": "أريد",
-    "عاوز": "أريد",
-    "عوزه": "أريده",
-    "حابب": "أريد",
+    "اايه": "ما",
+    "عايز": "اريد",
+    "عاوز": "اريد",
+    "عوزه": "اريده",
+    "عوزها": "اريدها",
+    "حابب": "اريد",
+    "مش": "لا",
     "بتاع": "خاص بـ",
-    "دلوقتي": "الآن",
+    "دلوقتي": "الان",
+    "دلوقت": "الان",
     "اللي": "الذي",
+    "اللى": "الذي",
+    "اوضة": "غرفة",
+    "اوضه": "غرفة",
+    "اوده": "غرفة",
+    "رووم": "غرفة",
+    "مختبر": "معمل",
+    "لاب": "معمل",
 }
+_SPOKEN_PHRASES: tuple[tuple[str, str], ...] = (
+    ("مش عارف", "لا اعرف"),
+)
+_ROOM_ARABIC_PREFIXES = re.compile(
+    r"(?:اوضة|اوضه|غرفة|غرفه|اوده|رووم|رقم\s*الغرفة)\s*",
+    re.IGNORECASE,
+)
+_ROOM_ENGLISH_PREFIXES = re.compile(
+    r"\b(?:room\s*no\.?\s*|room(?=\d)|r(?=\d)|lab\s*(?=\d))",
+    re.IGNORECASE,
+)
 
 
 def normalize_arabic_transcript(text: str) -> str:
@@ -69,18 +91,8 @@ def normalize_arabic_for_storage(text: str) -> str:
 def normalize_room_reference(text: str) -> str:
     """Normalize common English and Arabic room references to ``room NNN``."""
     value = (text or "").strip()
-    value = re.sub(
-        r"(?:اوضة|اوضه|غرفة|غرفه|اوده|رووم|رقم\s*الغرفة)\s*",
-        "room ",
-        value,
-        flags=re.IGNORECASE,
-    )
-    value = re.sub(
-        r"\b(?:room\s*no\.?\s*|room(?=\d)|r(?=\d)|lab\s*(?=\d))",
-        "room ",
-        value,
-        flags=re.IGNORECASE,
-    )
+    value = _ROOM_ARABIC_PREFIXES.sub("room ", value)
+    value = _ROOM_ENGLISH_PREFIXES.sub("room ", value)
     value = re.sub(r"\broom\s+(\d+)\b", r"room \1", value, flags=re.IGNORECASE)
     return " ".join(value.split())
 
@@ -113,5 +125,7 @@ def _split_preserve_latin(text: str) -> list[tuple[str, bool]]:
 
 
 def _apply_spoken_variants(text: str) -> str:
+    for source, target in _SPOKEN_PHRASES:
+        text = text.replace(source, target)
     words = text.split()
     return " ".join(_SPOKEN_VARIANTS.get(word, word) for word in words)

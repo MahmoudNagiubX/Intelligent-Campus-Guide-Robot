@@ -1,6 +1,6 @@
-building_id,building_name,building_code,main_entrance,has_elevator,stairs_location,waiting_area
-1,A,A,South Admissions Lobby,1,Lefthand stairwell near the cafeteria entrance. Central stairwell to the left of the finance department. Righthand stairwell near the parking lot entrance,"Ground floor, Admissions, reception, and finance Lobbies."
-2,B,B ,North Reception Lobby,1,2 Central spiral stairwells in the main lobby,
-3,D,D,East Reception,0,Righthand stairwell at the middle of the hallway. Lefthand stairwell at the end of the hallway.,
-4,E,E,South Entrance,0,2 Stairwells directly in front of each entrance.,
-5,C,C,East Open air entrance,0,Lefthand stairwell near the front. Righthand stairwell near the back.,Ground floor garden
+building_id,building_name,description
+C,Building C,Main academic building containing engineering departments labs and staff offices
+A,Building A,Secondary academic building
+B,Building B,Support facilities building
+D,Building D,Academic building with east reception
+E,Building E,Academic building with south entrance

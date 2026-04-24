@@ -1,65 +1,55 @@
-# Navigator - Raspberry Pi 5 Setup Guide
-## Phase 10, Step 10.2
+# Navigator (ino) - Raspberry Pi 5 Deployment Guide
 
-This document walks a hardware engineer or developer through setting up Navigator
-on a fresh Raspberry Pi 5 (8 GB) running Raspberry Pi OS.
+## Hardware requirements
 
----
-
-## 1. Hardware requirements
-
-| Component | Specification |
+| Component | Requirement |
 |---|---|
-| Board | Raspberry Pi 5 (8 GB RAM) |
-| OS | Raspberry Pi OS 64-bit (bookworm, headless) |
+| Board | Raspberry Pi 5, 8 GB RAM |
+| OS | Raspberry Pi OS 64-bit Lite (Bookworm) |
 | Storage | 32 GB+ microSD or NVMe SSD |
-| Microphone | USB microphone (16 kHz capable) or USB audio adapter with lapel mic |
-| Speaker | USB speaker or 3.5 mm audio output via USB audio adapter |
-| Network | Ethernet or Wi-Fi (stable internet required for Deepgram + Groq) |
+| Microphone | USB microphone, 16 kHz capable |
+| Speaker | USB speaker or 3.5 mm via USB audio adapter |
+| Network | Stable Wi-Fi or Ethernet (internet required) |
 
 ---
 
-## 2. OS installation
+## Step 1 - Flash OS
 
-1. Flash **Raspberry Pi OS Lite (64-bit)** using Raspberry Pi Imager.
-2. Enable SSH and set hostname/Wi-Fi credentials in Imager settings before flashing.
-3. Boot the Pi and connect via SSH.
+Use Raspberry Pi Imager. Select **Raspberry Pi OS Lite (64-bit)**.
+Enable SSH and set hostname/Wi-Fi in Imager before flashing.
 
 ---
 
-## 3. System dependencies
+## Step 2 - System Packages
 
 ```bash
 sudo apt-get update && sudo apt-get upgrade -y
 
-# Audio libraries
 sudo apt-get install -y \
     portaudio19-dev \
     libasound2-dev \
     libsndfile1 \
     ffmpeg \
-    alsa-utils
-
-# Git
-sudo apt-get install -y git
-
-# Python 3.11 (Bookworm ships 3.11)
-python3 --version   # confirm: Python 3.11.x
+    alsa-utils \
+    git \
+    python3-pip \
+    python3-venv
 ```
 
 ---
 
-## 4. Audio setup
+## Step 3 - Audio Device Setup
 
-### 4.1 List audio devices
 ```bash
-aplay -l   # list playback devices
-arecord -l # list capture devices
+# List playback and capture devices
+aplay -l
+arecord -l
 ```
 
-### 4.2 Set USB microphone as default input
-Create or edit `~/.asoundrc`:
-```
+Note the card number for your USB microphone and speaker.
+Create `~/.asoundrc`:
+
+```text
 pcm.!default {
     type asym
     capture.pcm "mic"
@@ -67,51 +57,45 @@ pcm.!default {
 }
 pcm.mic {
     type plug
-    slave { pcm "hw:1,0" }   # adjust card number from arecord -l
+    slave { pcm "hw:1,0" }
 }
 pcm.speaker {
     type plug
-    slave { pcm "hw:0,0" }   # adjust card number from aplay -l
+    slave { pcm "hw:0,0" }
 }
 ```
 
-### 4.3 Test microphone
+Replace `hw:1,0` and `hw:0,0` with your actual card numbers.
+
+Test:
+
 ```bash
-arecord -d 3 -f S16_LE -r 16000 -c 1 test.wav
-aplay test.wav
+arecord -d 3 -f S16_LE -r 16000 -c 1 test.wav && aplay test.wav
 ```
-You should hear your own voice played back.
 
 ---
 
-## 5. Python environment
+## Step 4 - Clone And Install
 
 ```bash
-# Install pip and venv
-sudo apt-get install -y python3-pip python3-venv
-
-# Clone the repository
-git clone https://github.com/MahmoudNagiubX/Intelligent-Campus-Guide-Robot.git navigator
+git clone <your-repo-url> navigator
 cd navigator
 
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
 pip install --upgrade pip
+
+# Install CPU-only PyTorch first (avoids downloading the GPU version)
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install everything else
 pip install -r requirements.txt
 ```
 
-> **Note**: PyAudio requires `portaudio19-dev` to compile. If installation fails, run:
-> ```bash
-> sudo apt-get install -y python3-pyaudio
-> ```
-> and import via the system package instead.
-
 ---
 
-## 6. Environment configuration
+## Step 5 - Configure
 
 ```bash
 cp .env.example .env
@@ -119,112 +103,89 @@ nano .env
 ```
 
 Fill in:
-```
-DEEPGRAM_API_KEY=your_key_here
-GROQ_API_KEY=your_key_here
-MIC_SAMPLE_RATE=16000
-MIC_DEVICE_INDEX=1        # set from arecord -l, usually 1 for USB mic
-SQLITE_DB_PATH=./data/sqlite/navigator.db
-CSV_DATA_DIR=./data/csv
+
+```env
+DEEPGRAM_API_KEY=your_deepgram_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
+GROQ_API_KEY=your_groq_key
+
+MIC_DEVICE_INDEX=1
+SPEAKER_DEVICE_INDEX=0
+
+ENGLISH_ONLY_MODE=true
+SESSION_TIMEOUT_SEC=25
+EDGE_TTS_VOICE_EN=en-US-ChristopherNeural
 EDGE_TTS_VOICE_AR=ar-EG-SalmaNeural
-EDGE_TTS_VOICE_EN=en-US-JennyNeural
-ACTION_BRIDGE_URL=http://localhost:8765/navigate
+EDGE_TTS_RATE=-10%
+EDGE_TTS_RATE_AR=-3%
+
+WAKE_WORD=hey ino
+WAKE_WORD_MODEL=models/hey_ino.onnx
+
 LOG_LEVEL=INFO
+SQLITE_DB_PATH=./data/sqlite/navigator.db
+CSV_ENGLISH_DIR=./data/csv_english
+CSV_ARABIC_DIR=./data/csv_arabic
 ```
 
 ---
 
-## 7. Startup sequence
+## Step 6 - Run Health Check
 
-The navigator application follows this boot sequence automatically:
-
-1. Load and validate `config` (all env vars present)
-2. Open `SQLite` database (create if not exists)
-3. Run `bootstrap_schema()` — create all tables and FTS indexes
-4. Run `sync_all_csvs()` — import CSV data into SQLite
-5. Initialize `MicCapture` — open audio device
-6. Initialize `WakeWordDetector` — load openWakeWord model
-7. Initialize `SileroVAD` — load Silero model from torch hub
-8. Initialize `DeepgramStreamingClient` — establish WebSocket
-9. Initialize `GroqClient` — verify API key
-10. Initialize `EdgeTTSClient` + `PlaybackManager`
-11. Initialize `ConversationController`
-12. Initialize `NavigationBridge` (action bridge)
-13. Enter **IDLE** state — await wake word
-
-```bash
-# Manual start
-source .venv/bin/activate
-python -m app.main
-```
-
----
-
-## 8. Health checks
-
-Run the health check script:
 ```bash
 python scripts/health_check.py
 ```
 
-Checks performed:
-- ✅ Config loads (all required env vars present)
-- ✅ Microphone device reachable
-- ✅ SQLite opens and schema exists
-- ✅ CSV sync completed without errors
-- ✅ Internet reachable (ping api.groq.com)
-- ✅ Groq and Deepgram keys valid format
+All checks must pass before starting the robot.
 
 ---
 
-## 9. Docker alternative
+## Step 7 - Run The Robot
 
-If running Docker on Pi:
 ```bash
-# Install Docker Engine
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker $USER
-newgrp docker
-
-# Start Navigator
-cd navigator/docker
-docker compose up --build
+python -m app.main
 ```
 
-Audio passthrough inside Docker on Pi requires the `/dev/snd` device mount
-(already configured in `docker-compose.yml`).
+The system will:
+
+1. Sync CSV data to SQLite.
+2. Run health checks and abort if any fail.
+3. Pre-warm the Groq connection.
+4. Pre-synthesize TTS fallback audio.
+5. Load the wake word model.
+6. Enter idle listening mode, waiting for **"Hey ino"**.
 
 ---
 
-## 10. Auto-start on boot
+## Step 8 - Auto-Start On Boot (Optional)
 
-To run Navigator automatically after boot:
-```bash
-sudo nano /etc/systemd/system/navigator.service
-```
+Create `/etc/systemd/system/navigator.service`:
 
 ```ini
 [Unit]
 Description=Navigator Campus Guide Robot
-After=network-online.target
+After=network-online.target sound.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/navigator
+Environment=PATH=/home/pi/navigator/.venv/bin:/usr/bin:/bin
 ExecStart=/home/pi/navigator/.venv/bin/python -m app.main
 Restart=on-failure
 RestartSec=5
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:/home/pi/navigator/logs/navigator.log
+StandardError=append:/home/pi/navigator/logs/navigator.log
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+Enable:
+
 ```bash
+mkdir -p /home/pi/navigator/logs
 sudo systemctl daemon-reload
 sudo systemctl enable navigator
 sudo systemctl start navigator
@@ -233,13 +194,14 @@ sudo systemctl status navigator
 
 ---
 
-## 11. Troubleshooting
+## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `No module named pyaudio` | `sudo apt-get install python3-pyaudio` |
-| Mic device not found | Check `arecord -l` and set `MIC_DEVICE_INDEX` in `.env` |
-| Silero VAD slow to load | First boot downloads the model — allow 30–60 seconds |
-| Deepgram `Unauthorized` | Check `DEEPGRAM_API_KEY` in `.env` |
-| Wake word never fires | Test mic with `arecord` first, then check OWW model path |
-| TTS no audio | Check speaker connection, `aplay -l`, and ALSA config |
+**"No audio was received" from TTS** - edge-tts network issue. The robot has a retry mechanism. If it persists, check internet connectivity.
+
+**"DEEPGRAM_API_KEY is missing"** - `.env` is not loaded. Ensure you ran `cp .env.example .env` and filled in the keys.
+
+**Wake word not triggering** - check `MIC_DEVICE_INDEX`, confirm `models/hey_ino.onnx` exists, run `arecord -l`, and try index 1 or 2.
+
+**Robot responds but no audio** - check `SPEAKER_DEVICE_INDEX`. Run `aplay -l` and try different values.
+
+**High CPU usage** - normal during VAD model load, especially on first startup. It settles after the Silero model warms up.

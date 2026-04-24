@@ -146,6 +146,7 @@ class SpokenFacts:
     description: Optional[str] = None
     office_hours: Optional[str] = None
     contact_notes: Optional[str] = None
+    title: Optional[str] = None
 
 
 @dataclass(frozen=True)

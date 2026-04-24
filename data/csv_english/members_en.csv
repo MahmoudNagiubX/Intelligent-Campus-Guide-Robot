@@ -1,21 +1,21 @@
-Name,Department,Position,Level
-Omar Ahmed Gouda,Mechatronics,President of Innovatronics,3
-Mohamed Mohsen,Mechatronics,Software Leader,3
-Mahmod Mohamed Ali,Mechatronics,Robotics Leader,3
-Zyad Amr,Software,Documentation Leader,3
-Mariam Ahmed Mahmoud Ezz eldin,Mechatronics,Member,3
-Ezzat Mohamed Mekawy,Mechatronics,AI Leader,3
-Mahmoud Ahmed Nagiub,Software,AI Member,3
-Mayar mohamed elhadi,Mechatronics,Member,3
-Omar Ali Farid Ali Swelam,Mechatronics,Mechanical Design Leader,3
-Selina Sameh Samy Selim,Software,Member,3
-Marwan Hisham Ahmed,Mechatronics,Control Leader,3
-Ali Hani Halim,Mechatronics,Project Manager,4
-Ahmed Alamir Ahmed Shawky,Mechatronics,Electronics and Power leader,3
-Malak Ahmed,Mechatronics,Media Specialist,2
-Seif Eldeen Yasser Ibrahim Labib,Energy,Member,3
-Abdelrhman Ashraf Elkomy,Mechatronics,Control Leader,3
-Mazen Mohamed Ali,Mechatronics,Member,3
-Yasmine Ahmed Kamal,Energy,Documentation Leader,4
-Mostafa Mohamed Mohamed,Mechatronics,Hardware Leader,3
-Mohamed Ali,Mechatronics,Marketing,3
+member_id,full_name,role,team,bio
+1,Omar Ahmed Gouda,President of Innovtronics,Innovtronics,Mechatronics level 3
+2,Mohamed Mohsen,Software Leader,Innovtronics,Mechatronics level 3
+3,Mahmod Mohamed Ali,Robotics Leader,Innovtronics,Mechatronics level 3
+4,Zyad Amr,Documentation Leader,Innovtronics,Software level 3
+5,Mariam Ahmed Mahmoud Ezz eldin,Member,Innovtronics,Mechatronics level 3
+6,Ezzat Mohamed Mekawy,AI Leader,Innovtronics,Mechatronics level 3
+7,Mahmoud Ahmed Nagiub,AI Member,Innovtronics,Software level 3
+8,Mayar mohamed elhadi,Member,Innovtronics,Mechatronics level 3
+9,Omar Ali Farid Ali Swelam,Mechanical Design Leader,Innovtronics,Mechatronics level 3
+10,Selina Sameh Samy Selim,Member,Innovtronics,Software level 3
+11,Marwan Hisham Ahmed,Control Leader,Innovtronics,Mechatronics level 3
+12,Ali Hani Halim,Project Manager,Innovtronics,Mechatronics level 4
+13,Ahmed Alamir Ahmed Shawky,Electronics and Power Leader,Innovtronics,Mechatronics level 3
+14,Malak Ahmed,Media Specialist,Innovtronics,Mechatronics level 2
+15,Seif Eldeen Yasser Ibrahim Labib,Member,Innovtronics,Energy level 3
+16,Abdelrhman Ashraf Elkomy,Control Leader,Innovtronics,Mechatronics level 3
+17,Mazen Mohamed Ali,Member,Innovtronics,Mechatronics level 3
+18,Yasmine Ahmed Kamal,Documentation Leader,Innovtronics,Energy level 4
+19,Mostafa Mohamed Mohamed,Hardware Leader,Innovtronics,Mechatronics level 3
+20,Mohamed Ali,Marketing,Innovtronics,Mechatronics level 3

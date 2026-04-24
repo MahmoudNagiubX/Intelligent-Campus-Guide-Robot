@@ -72,6 +72,7 @@ class SessionManager:
         self,
         session_timeout_sec: Optional[int] = None,
         on_timeout: Optional[Callable[..., None]] = None,
+        on_reset: Optional[Callable[[], None]] = None,
     ) -> None:
         from app.config import get_settings
 
@@ -79,6 +80,7 @@ class SessionManager:
 
         self._timeout_sec = session_timeout_sec or cfg.session_timeout_sec
         self._on_timeout = on_timeout
+        self._on_reset = on_reset
         self._state = SessionState.IDLE
         self._session_id: Optional[str] = None
         self._last_activity = time.monotonic()
@@ -155,7 +157,8 @@ class SessionManager:
                 return
             self._session_id = str(uuid.uuid4())
             self._apply(current, SessionState.WAKE_DETECTED)
-        self.transition(SessionState.LISTENING)
+        if self.transition(SessionState.LISTENING):
+            self.start_timeout_timer()
 
     def on_speech_start(self) -> None:
         """Called when VAD detects speech onset."""
@@ -166,11 +169,24 @@ class SessionManager:
 
     def on_speech_end(self) -> None:
         """Called when VAD detects end of utterance and processing should begin."""
-        self.transition(SessionState.PROCESSING)
+        ok = self.transition(SessionState.PROCESSING)
+        if ok:
+            self.start_timeout_timer()
+            logger.debug(
+                "session_processing_timeout_armed",
+                timeout_sec=self._timeout_sec,
+                session_id=self._session_id,
+            )
 
     def on_response_ready(self) -> None:
         """Called when a spoken response is ready to play."""
-        self.transition(SessionState.SPEAKING)
+        from app.config import get_settings
+
+        ok = self.transition(SessionState.SPEAKING)
+        if ok and get_settings().session_timeout_speaking_paused:
+            with self._lock:
+                self._cancel_timer()
+            logger.debug("session_timeout_paused_during_speaking", session_id=self._session_id)
 
     def on_playback_complete(self) -> None:
         """Called when TTS finishes speaking and the session should close."""
@@ -200,11 +216,16 @@ class SessionManager:
             self._timer.start()
 
     def activity_ping(self) -> None:
-        """Reset the inactivity timer after detected speech or other user input."""
+        """Reset the full inactivity timer after detected speech or other user input."""
         self._last_activity = time.monotonic()
         with self._lock:
             self._cancel_timer()
-        self.start_timeout_timer()
+            self._timer = threading.Timer(
+                interval=self._timeout_sec,
+                function=self._handle_timeout,
+            )
+            self._timer.daemon = True
+            self._timer.start()
 
     def _apply(self, old: SessionState, new: SessionState) -> bool:
         """Write the new state and log it. Must be called with lock held."""
@@ -229,7 +250,7 @@ class SessionManager:
             current = self._state
             session_id = self._session_id
 
-        if current != SessionState.LISTENING:
+        if current not in (SessionState.LISTENING, SessionState.PROCESSING):
             return
 
         logger.info("session_timeout", state=current.value, session_id=session_id)
@@ -242,7 +263,7 @@ class SessionManager:
             except Exception as exc:
                 logger.error("session_timeout_callback_error", error=str(exc))
             with self._lock:
-                if self._state != SessionState.LISTENING:
+                if self._state not in (SessionState.LISTENING, SessionState.PROCESSING):
                     return
 
         self.end_session(reason="timeout")
@@ -266,6 +287,11 @@ class SessionManager:
         def _do_reset() -> None:
             time.sleep(1.0)
             self.reset()
+            if self._on_reset:
+                try:
+                    self._on_reset()
+                except Exception as exc:
+                    logger.error("session_on_reset_callback_error", error=str(exc))
 
-        thread = threading.Thread(target=_do_reset, daemon=True)
+        thread = threading.Thread(target=_do_reset, daemon=True, name="session-reset")
         thread.start()

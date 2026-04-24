@@ -55,7 +55,7 @@ async def test_groq_timeout_falls_back_to_grounded_facts(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tts_failure_records_error_and_resets_session(monkeypatch, tmp_path):
+async def test_tts_failure_records_warning_and_resets_session(monkeypatch, tmp_path):
     configure_test_settings(monkeypatch, tmp_path)
     bootstrap_and_sync()
 
@@ -75,7 +75,8 @@ async def test_tts_failure_records_error_and_resets_session(monkeypatch, tmp_pat
         assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
 
         events = runtime.tracer.events()
-        assert any(event.name == "error_occurred" and event.data["source"] == "tts" for event in events)
+        assert any(event.name == "tts_empty_audio" and event.data["source"] == "tts" for event in events)
+        assert any(event.name == "tts_empty_audio" and event.data["source"] == "playback" for event in events)
         assert any(event.name == "session_ended" and event.data["reason"] == "empty_audio" for event in events)
     finally:
         await runtime.shutdown()

@@ -31,6 +31,16 @@ DDL: list[str] = [
         updated_at    TEXT,
         UNIQUE(code, lang)
     )""",
+    """CREATE TABLE IF NOT EXISTS buildings (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        building_id   TEXT    NOT NULL,
+        building_name TEXT    NOT NULL,
+        description   TEXT,
+        lang          TEXT    NOT NULL DEFAULT 'en',
+        is_active     INTEGER NOT NULL DEFAULT 1,
+        updated_at    TEXT,
+        UNIQUE(building_id, lang)
+    )""",
     """CREATE TABLE IF NOT EXISTS rooms (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         room_number   TEXT    NOT NULL,
@@ -93,12 +103,14 @@ DDL: list[str] = [
     )""",
     """CREATE TABLE IF NOT EXISTS office_hours (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        staff_id         TEXT,
         staff_full_name  TEXT NOT NULL,
         weekday          TEXT NOT NULL,
         start_time       TEXT NOT NULL,
         end_time         TEXT NOT NULL,
         notes            TEXT,
         source_version   TEXT,
+        lang             TEXT NOT NULL DEFAULT 'en',
         updated_at       TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS aliases (
@@ -117,7 +129,20 @@ DDL: list[str] = [
         canonical_id  INTEGER NOT NULL,
         nav_code      TEXT NOT NULL UNIQUE,
         safety_notes  TEXT,
-        updated_at    TEXT
+        updated_at    TEXT,
+        UNIQUE(target_type, canonical_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS members (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        member_id    TEXT,
+        full_name    TEXT    NOT NULL,
+        role         TEXT,
+        team         TEXT    DEFAULT 'Innovtronics',
+        bio          TEXT,
+        lang         TEXT    NOT NULL DEFAULT 'en',
+        is_active    INTEGER NOT NULL DEFAULT 1,
+        updated_at   TEXT,
+        UNIQUE(full_name, lang)
     )""",
     """CREATE TABLE IF NOT EXISTS sync_log (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,6 +156,11 @@ DDL: list[str] = [
         rows_errored  INTEGER DEFAULT 0,
         status        TEXT DEFAULT 'running',
         error_message TEXT
+    )""",
+    """CREATE VIRTUAL TABLE IF NOT EXISTS fts_buildings USING fts5(
+        building_id, building_name, description,
+        lang UNINDEXED,
+        tokenize='unicode61'
     )""",
     """CREATE VIRTUAL TABLE IF NOT EXISTS fts_departments USING fts5(
         code, name, building, room,
@@ -157,9 +187,16 @@ DDL: list[str] = [
         lang UNINDEXED,
         tokenize='unicode61'
     )""",
+    """CREATE VIRTUAL TABLE IF NOT EXISTS fts_members USING fts5(
+        full_name, role, team, bio,
+        lang UNINDEXED,
+        tokenize='unicode61'
+    )""",
 ]
 
 INDEXES: list[str] = [
+    "CREATE INDEX IF NOT EXISTS idx_buildings_lang ON buildings(lang)",
+    "CREATE INDEX IF NOT EXISTS idx_buildings_id ON buildings(building_id, lang)",
     "CREATE INDEX IF NOT EXISTS idx_departments_lang ON departments(lang)",
     "CREATE INDEX IF NOT EXISTS idx_rooms_lang ON rooms(lang)",
     "CREATE INDEX IF NOT EXISTS idx_rooms_number ON rooms(room_number, lang)",
@@ -169,10 +206,13 @@ INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_landmarks_lang ON landmarks(lang)",
     "CREATE INDEX IF NOT EXISTS idx_staff_lang ON staff(lang)",
     "CREATE INDEX IF NOT EXISTS idx_staff_source_id ON staff(source_staff_id)",
+    "CREATE INDEX IF NOT EXISTS idx_office_hours_staff_id ON office_hours(staff_id)",
     "CREATE INDEX IF NOT EXISTS idx_office_hours_staff_name ON office_hours(staff_full_name)",
     "CREATE INDEX IF NOT EXISTS idx_aliases_lang ON aliases(lang)",
     "CREATE INDEX IF NOT EXISTS idx_aliases_normalized_lang ON aliases(normalized_alias, lang)",
     "CREATE INDEX IF NOT EXISTS idx_nav_targets_code ON navigation_targets(nav_code)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_nav_targets_type_canonical ON navigation_targets(target_type, canonical_id)",
+    "CREATE INDEX IF NOT EXISTS idx_members_lang ON members(lang)",
 ]
 
 _NORMALIZED_COLS = [
@@ -182,6 +222,11 @@ _NORMALIZED_COLS = [
     ("landmarks", "landmark_name_norm", "TEXT"),
     ("staff", "full_name_norm", "TEXT"),
     ("aliases", "alias_text_norm", "TEXT"),
+]
+
+_MIGRATION_COLS = [
+    ("office_hours", "staff_id", "TEXT"),
+    ("office_hours", "lang", "TEXT NOT NULL DEFAULT 'en'"),
 ]
 
 
@@ -197,10 +242,14 @@ def bootstrap_schema() -> None:
     """Create all tables, indexes, and FTS virtual tables. Idempotent."""
     conn = get_db()
     logger.info("schema_bootstrap_start", statement_count=len(DDL) + len(INDEXES))
-    for statement in DDL + INDEXES:
+    for statement in DDL:
         conn.execute(statement)
     for table, column, col_type in _NORMALIZED_COLS:
         _add_column_if_missing(conn, table, column, col_type)
+    for table, column, col_type in _MIGRATION_COLS:
+        _add_column_if_missing(conn, table, column, col_type)
+    for statement in INDEXES:
+        conn.execute(statement)
     conn.commit()
     logger.info("schema_bootstrap_complete")
 
@@ -212,6 +261,16 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
     """
     db = conn or get_db()
     _populate_normalized_arabic_columns(db)
+
+    db.execute("DELETE FROM fts_buildings")
+    db.execute(
+        """
+        INSERT INTO fts_buildings(rowid, building_id, building_name, description, lang)
+        SELECT id, building_id, building_name, COALESCE(description, ''), lang
+        FROM buildings
+        WHERE is_active = 1
+        """
+    )
 
     db.execute("DELETE FROM fts_departments")
     db.execute(
@@ -273,6 +332,16 @@ def rebuild_fts(conn: sqlite3.Connection | None = None) -> None:
         """
     )
 
+    db.execute("DELETE FROM fts_members")
+    db.execute(
+        """
+        INSERT INTO fts_members(rowid, full_name, role, team, bio, lang)
+        SELECT id, full_name, COALESCE(role, ''), COALESCE(team, 'Innovtronics'), COALESCE(bio, ''), lang
+        FROM members
+        WHERE is_active = 1
+        """
+    )
+
     db.commit()
     logger.info("fts_rebuilt")
 
@@ -310,6 +379,7 @@ def get_table_counts() -> dict[str, int]:
     conn = get_db()
     tables = [
         "departments",
+        "buildings",
         "rooms",
         "labs",
         "floors",
@@ -318,6 +388,7 @@ def get_table_counts() -> dict[str, int]:
         "office_hours",
         "aliases",
         "navigation_targets",
+        "members",
     ]
     counts: dict[str, int] = {}
     for table in tables:

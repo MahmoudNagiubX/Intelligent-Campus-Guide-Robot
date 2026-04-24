@@ -81,6 +81,21 @@ _DEPT_MAP_AR = ColumnMap(
     }
 )
 
+_BUILDINGS_MAP_EN = ColumnMap(
+    {
+        "building_id": "building_id",
+        "building_name": "building_name",
+        "description": "description",
+    }
+)
+_BUILDINGS_MAP_AR = ColumnMap(
+    {
+        "building_id": "معرف_المبنى",
+        "building_name": "اسم_المبنى",
+        "description": "الوصف",
+    }
+)
+
 _ROOMS_MAP_EN = ColumnMap(
     {
         "building_id": "building_id",
@@ -193,6 +208,25 @@ _OFFICE_HOURS_MAP_AR = ColumnMap(
     }
 )
 
+_MEMBERS_MAP_EN = ColumnMap(
+    {
+        "member_id": "member_id",
+        "full_name": "full_name",
+        "role": "role",
+        "team": "team",
+        "bio": "bio",
+    }
+)
+_MEMBERS_MAP_AR = ColumnMap(
+    {
+        "member_id": "معرف_العضو",
+        "full_name": "الاسم_الكامل",
+        "role": "الدور",
+        "team": "الفريق",
+        "bio": "السيرة",
+    }
+)
+
 _ALIASES_MAP_EN = ColumnMap(
     {
         "canonical_type": "canonical_type",
@@ -202,6 +236,16 @@ _ALIASES_MAP_EN = ColumnMap(
     }
 )
 _ALIASES_MAP_AR = _ALIASES_MAP_EN
+
+_NAV_PATHS_MAP_EN = ColumnMap(
+    {
+        "target_type": "target_type",
+        "canonical_name": "canonical_name",
+        "nav_code": "nav_code",
+        "safety_notes": "safety_notes",
+    }
+)
+_NAV_PATHS_MAP_AR = _NAV_PATHS_MAP_EN
 
 
 def _start_log(conn: sqlite3.Connection, source_name: str, lang: str | None) -> int:
@@ -285,6 +329,40 @@ def _sync_departments(
     return upserted, skipped, errored
 
 
+def _sync_buildings(
+    conn: sqlite3.Connection,
+    rows: list[dict[str, str]],
+    lang: str,
+    cm: ColumnMap,
+) -> tuple[int, int, int]:
+    upserted = skipped = errored = 0
+    for line_number, row in enumerate(rows, start=2):
+        building_id = cm.get(row, "building_id")
+        building_name = cm.get(row, "building_name")
+        if not building_id or not building_name:
+            logger.warning("sync_building_missing_required", lang=lang, line=line_number)
+            skipped += 1
+            continue
+        try:
+            conn.execute(
+                """
+                INSERT INTO buildings (building_id, building_name, description, lang, updated_at)
+                VALUES (?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(building_id, lang) DO UPDATE SET
+                    building_name=excluded.building_name,
+                    description=excluded.description,
+                    updated_at=excluded.updated_at,
+                    is_active=1
+                """,
+                (building_id, building_name, cm.opt(row, "description"), lang),
+            )
+            upserted += 1
+        except sqlite3.Error as exc:
+            logger.error("sync_building_error", lang=lang, line=line_number, error=str(exc))
+            errored += 1
+    return upserted, skipped, errored
+
+
 def _sync_rooms(
     conn: sqlite3.Connection,
     rows: list[dict[str, str]],
@@ -305,7 +383,7 @@ def _sync_rooms(
                 INSERT INTO rooms (room_number, room_name, room_type, building_id, floor_id, lang, is_active, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))
                 ON CONFLICT(building_id, room_number, lang) DO UPDATE SET
-                    room_name=excluded.room_name,
+                    room_name=COALESCE(NULLIF(rooms.room_name, ''), excluded.room_name),
                     room_type=excluded.room_type,
                     floor_id=excluded.floor_id,
                     updated_at=excluded.updated_at
@@ -595,16 +673,18 @@ def _sync_office_hours(
             )
             conn.execute(
                 """
-                INSERT INTO office_hours (staff_full_name, weekday, start_time, end_time, notes, source_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                INSERT INTO office_hours (staff_id, staff_full_name, weekday, start_time, end_time, notes, source_version, lang, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """,
                 (
+                    source_staff_id,
                     staff_row["full_name"],
                     weekday,
                     start_time,
                     end_time,
                     None,
                     cm.opt(row, "source_version"),
+                    lang,
                 ),
             )
             upserted += 1
@@ -630,8 +710,17 @@ def _sync_aliases(
         if not canonical_type or not canonical_name or not alias_text:
             skipped += 1
             continue
-        resolved = _resolve_canonical_for_alias(conn, canonical_type, canonical_name)
+        resolved = _resolve_canonical_for_alias(conn, canonical_type, canonical_name, alias_lang)
         if resolved is None:
+            if alias_lang != "en":
+                logger.debug(
+                    "sync_alias_missing_canonical_skipped_after_en_fallback",
+                    canonical_type=canonical_type,
+                    canonical_name=canonical_name,
+                    line=line_number,
+                )
+                skipped += 1
+                continue
             logger.warning(
                 "sync_alias_missing_canonical",
                 canonical_type=canonical_type,
@@ -665,10 +754,170 @@ def _sync_aliases(
     return upserted, skipped, errored
 
 
+def _sync_members(
+    conn: sqlite3.Connection,
+    rows: list[dict[str, str]],
+    lang: str,
+    cm: ColumnMap,
+) -> tuple[int, int, int]:
+    upserted = skipped = errored = 0
+    for line_number, row in enumerate(rows, start=2):
+        full_name = cm.get(row, "full_name")
+        if not full_name:
+            logger.warning("sync_member_missing_required", lang=lang, line=line_number)
+            skipped += 1
+            continue
+        try:
+            conn.execute(
+                """
+                INSERT INTO members (member_id, full_name, role, team, bio, lang, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(full_name, lang) DO UPDATE SET
+                    member_id=excluded.member_id,
+                    role=excluded.role,
+                    team=excluded.team,
+                    bio=excluded.bio,
+                    updated_at=excluded.updated_at,
+                    is_active=1
+                """,
+                (
+                    cm.opt(row, "member_id"),
+                    full_name,
+                    cm.opt(row, "role"),
+                    cm.opt(row, "team") or "Innovtronics",
+                    cm.opt(row, "bio"),
+                    lang,
+                ),
+            )
+            upserted += 1
+        except sqlite3.Error as exc:
+            logger.error("sync_member_error", lang=lang, line=line_number, error=str(exc))
+            errored += 1
+    return upserted, skipped, errored
+
+
+def _sync_navigation_paths(
+    conn: sqlite3.Connection,
+    rows: list[dict[str, str]],
+    lang: str,
+    cm: ColumnMap,
+) -> tuple[int, int, int]:
+    """
+    Map canonical entity names to nav codes in navigation_targets.
+    Resolves canonical_id by looking up the name in the appropriate table.
+    """
+    upserted = skipped = errored = 0
+    for line_number, row in enumerate(rows, start=2):
+        target_type = cm.get(row, "target_type").lower().strip()
+        canonical_name = cm.get(row, "canonical_name")
+        nav_code = cm.get(row, "nav_code")
+
+        if not target_type or not canonical_name or not nav_code:
+            skipped += 1
+            continue
+
+        canonical_id = _resolve_canonical_id(conn, target_type, canonical_name)
+        if canonical_id is None:
+            logger.warning(
+                "nav_path_canonical_not_found",
+                target_type=target_type,
+                canonical_name=canonical_name,
+                line=line_number,
+            )
+            skipped += 1
+            continue
+
+        try:
+            conn.execute(
+                """
+                INSERT INTO navigation_targets
+                    (target_type, canonical_id, nav_code, safety_notes, updated_at)
+                VALUES (?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(target_type, canonical_id) DO UPDATE SET
+                    nav_code=excluded.nav_code,
+                    safety_notes=excluded.safety_notes,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    target_type,
+                    canonical_id,
+                    nav_code,
+                    cm.opt(row, "safety_notes"),
+                ),
+            )
+            upserted += 1
+        except sqlite3.Error as exc:
+            logger.error("sync_nav_path_error", lang=lang, line=line_number, error=str(exc))
+            errored += 1
+
+    return upserted, skipped, errored
+
+
+def _resolve_canonical_id(
+    conn: sqlite3.Connection,
+    target_type: str,
+    canonical_name: str,
+) -> int | None:
+    """
+    Resolve a canonical name to its integer primary key.
+    Tries exact match first, alternate IDs next, then a broad name match.
+    """
+    table_lookup = {
+        "room": ("rooms", "room_name", "room_number"),
+        "lab": ("labs", "lab_name", None),
+        "department": ("departments", "name", "code"),
+        "landmark": ("landmarks", "landmark_name", None),
+        "building": ("buildings", "building_name", "building_id"),
+        "staff": ("staff", "full_name", None),
+        "member": ("members", "full_name", "team"),
+    }
+    if target_type not in table_lookup:
+        return None
+
+    table, name_col, alt_col = table_lookup[target_type]
+
+    row = conn.execute(
+        f"""
+        SELECT id FROM {table}
+        WHERE LOWER({name_col})=LOWER(?)
+        ORDER BY CASE COALESCE(lang, 'en') WHEN 'en' THEN 0 ELSE 1 END
+        LIMIT 1
+        """,
+        (canonical_name,),
+    ).fetchone()
+    if row:
+        return row["id"]
+
+    if alt_col:
+        row = conn.execute(
+            f"""
+            SELECT id FROM {table}
+            WHERE LOWER({alt_col})=LOWER(?)
+            ORDER BY CASE COALESCE(lang, 'en') WHEN 'en' THEN 0 ELSE 1 END
+            LIMIT 1
+            """,
+            (canonical_name,),
+        ).fetchone()
+        if row:
+            return row["id"]
+
+    row = conn.execute(
+        f"""
+        SELECT id FROM {table}
+        WHERE LOWER({name_col}) LIKE LOWER(?)
+        ORDER BY CASE COALESCE(lang, 'en') WHEN 'en' THEN 0 ELSE 1 END
+        LIMIT 1
+        """,
+        (f"%{canonical_name}%",),
+    ).fetchone()
+    return row["id"] if row else None
+
+
 def _resolve_canonical_for_alias(
     conn: sqlite3.Connection,
     canonical_type: str,
     canonical_name: str,
+    lang: str = "en",
 ) -> tuple[str, int] | None:
     mapping = {
         "room": ("rooms", "room_name"),
@@ -676,26 +925,80 @@ def _resolve_canonical_for_alias(
         "department": ("departments", "name"),
         "landmark": ("landmarks", "landmark_name"),
         "staff": ("staff", "full_name"),
+        "building": ("buildings", "building_name"),
+        "member": ("members", "full_name"),
     }
-    search_order = [canonical_type] + [item for item in ("room", "lab", "department", "landmark", "staff") if item != canonical_type]
+    search_order = [canonical_type] + [
+        item
+        for item in ("room", "lab", "department", "landmark", "staff", "building", "member")
+        if item != canonical_type
+    ]
     for entity_type in search_order:
         if entity_type not in mapping:
             continue
-        table, column = mapping[entity_type]
-        row = conn.execute(
-            f"SELECT id FROM {table} WHERE LOWER({column})=LOWER(?) ORDER BY CASE lang WHEN 'en' THEN 0 ELSE 1 END LIMIT 1",
-            (canonical_name,),
-        ).fetchone()
-        if row:
-            return entity_type, row["id"]
-        first_word = canonical_name.split()[0] if canonical_name.split() else ""
-        if len(first_word) >= 4:
-            row = conn.execute(
-                f"SELECT id FROM {table} WHERE LOWER({column}) LIKE LOWER(?) ORDER BY CASE lang WHEN 'en' THEN 0 ELSE 1 END LIMIT 1",
-                (f"%{first_word}%",),
-            ).fetchone()
-            if row:
-                return entity_type, row["id"]
+        resolved = _find_canonical_id(conn, entity_type, canonical_name, lang)
+        if resolved:
+            return resolved
+    return None
+
+
+def _find_canonical_id(
+    conn: sqlite3.Connection,
+    canonical_type: str,
+    canonical_name: str,
+    lang: str = "en",
+) -> tuple[str, int] | None:
+    result = _lookup_canonical(conn, canonical_type, canonical_name, lang)
+    if result:
+        return result
+    if lang != "en":
+        result = _lookup_canonical(conn, canonical_type, canonical_name, "en")
+        if result:
+            logger.debug(
+                "alias_canonical_found_via_en_fallback",
+                canonical_name=canonical_name,
+                original_lang=lang,
+            )
+            return result
+    return None
+
+
+def _lookup_canonical(
+    conn: sqlite3.Connection,
+    canonical_type: str,
+    canonical_name: str,
+    lang: str,
+) -> tuple[str, int] | None:
+    mapping = {
+        "room": ("rooms", "room_name"),
+        "lab": ("labs", "lab_name"),
+        "department": ("departments", "name"),
+        "landmark": ("landmarks", "landmark_name"),
+        "staff": ("staff", "full_name"),
+        "building": ("buildings", "building_name"),
+        "member": ("members", "full_name"),
+    }
+    if canonical_type not in mapping:
+        return None
+
+    table, column = mapping[canonical_type]
+    row = conn.execute(
+        f"SELECT id FROM {table} WHERE lang=? AND LOWER({column})=LOWER(?) LIMIT 1",
+        (lang, canonical_name),
+    ).fetchone()
+    if row:
+        return canonical_type, row["id"]
+
+    first_word = canonical_name.split()[0] if canonical_name.split() else ""
+    if len(first_word) < 4:
+        return None
+
+    row = conn.execute(
+        f"SELECT id FROM {table} WHERE lang=? AND LOWER({column}) LIKE LOWER(?) LIMIT 1",
+        (lang, f"%{first_word}%"),
+    ).fetchone()
+    if row:
+        return canonical_type, row["id"]
     return None
 
 
@@ -707,6 +1010,7 @@ class _CSVSpec:
 
 
 _SPECS: dict[str, _CSVSpec] = {
+    "buildings": _CSVSpec(_sync_buildings, _BUILDINGS_MAP_EN, _BUILDINGS_MAP_AR),
     "floors": _CSVSpec(_sync_floors, _FLOORS_MAP_EN, _FLOORS_MAP_AR),
     "departments": _CSVSpec(_sync_departments, _DEPT_MAP_EN, _DEPT_MAP_AR),
     "rooms": _CSVSpec(_sync_rooms, _ROOMS_MAP_EN, _ROOMS_MAP_AR),
@@ -714,15 +1018,29 @@ _SPECS: dict[str, _CSVSpec] = {
     "landmarks": _CSVSpec(_sync_landmarks, _LANDMARKS_MAP_EN, _LANDMARKS_MAP_AR),
     "staff": _CSVSpec(_sync_staff_en, _STAFF_MAP_EN, _STAFF_MAP_AR),
     "office_hours": _CSVSpec(_sync_office_hours, _OFFICE_HOURS_MAP_EN, _OFFICE_HOURS_MAP_AR),
+    "members": _CSVSpec(_sync_members, _MEMBERS_MAP_EN, _MEMBERS_MAP_AR),
     "aliases": _CSVSpec(_sync_aliases, _ALIASES_MAP_EN, _ALIASES_MAP_AR),
+    "navigation_paths": _CSVSpec(_sync_navigation_paths, _NAV_PATHS_MAP_EN, _NAV_PATHS_MAP_AR),
 }
 
-_SYNC_ORDER = ["floors", "departments", "rooms", "labs", "landmarks", "staff", "office_hours", "aliases"]
-_IGNORED_STEMS = {"buildings", "members", "navigation_paths"}
+_SYNC_ORDER = [
+    "buildings",
+    "floors",
+    "departments",
+    "rooms",
+    "labs",
+    "landmarks",
+    "staff",
+    "office_hours",
+    "members",
+    "aliases",
+    "navigation_paths",
+]
+_IGNORED_STEMS: frozenset[str] = frozenset()
 
 
 def _stem_to_entity(stem: str, default_lang: str) -> tuple[str, str] | None:
-    lower = stem.lower()
+    lower = stem.lower().rstrip(".")
     for suffix, lang in (("_en", "en"), ("_ar", "ar")):
         if lower.endswith(suffix):
             entity = lower[: -len(suffix)]
@@ -732,7 +1050,7 @@ def _stem_to_entity(stem: str, default_lang: str) -> tuple[str, str] | None:
                 return None
     if lower in _SPECS:
         return lower, default_lang
-    if lower in _IGNORED_STEMS or lower.startswith("members_"):
+    if lower in _IGNORED_STEMS:
         return None
     return None
 

@@ -76,6 +76,8 @@ class PlaybackManager:
         self._thread: Optional[threading.Thread] = None
         self._active_stream: Optional[Any] = None
         self._resolved_output_device_name: Optional[str] = None
+        self._echo_suppress_until: float = 0.0
+        self._echo_suppress_ms: float = cfg.playback_echo_suppress_ms
 
         if not self._mock:
             self._log_output_device()
@@ -95,6 +97,10 @@ class PlaybackManager:
     @property
     def is_playing(self) -> bool:
         return self.state == PlaybackState.PLAYING
+
+    def is_echo_suppressed(self) -> bool:
+        """True while post-playback echo should be ignored by VAD."""
+        return time.monotonic() < self._echo_suppress_until
 
     def play(self, audio_bytes: bytes) -> None:
         """
@@ -154,6 +160,13 @@ class PlaybackManager:
         Call this from the VAD when speech is detected during playback.
         This is the barge-in trigger.
         """
+        if self.is_echo_suppressed():
+            logger.debug(
+                "playback.echo_suppressed_barge_in_ignored",
+                suppress_remaining_ms=round((self._echo_suppress_until - time.monotonic()) * 1000),
+            )
+            return
+
         if self.state == PlaybackState.PLAYING:
             logger.info("playback_barge_in_detected")
             self.stop()
@@ -176,6 +189,7 @@ class PlaybackManager:
         with self._lock:
             if self._state == PlaybackState.PLAYING:
                 self._state = PlaybackState.DONE
+                self._echo_suppress_until = time.monotonic() + (self._echo_suppress_ms / 1000.0)
                 logger.info("playback_done_naturally")
                 try:
                     self._on_complete()

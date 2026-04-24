@@ -31,7 +31,7 @@ def _prewarm_groq(logger) -> None:
         logger.warning("navigator_groq_prewarm_failed", error=str(exc))
 
 
-def main() -> None:
+async def main() -> None:
     setup_logging()
     logger = get_logger(__name__)
 
@@ -66,14 +66,48 @@ def main() -> None:
         logger.info("navigator_keyterms_loaded", english_count=len(en_terms), arabic_count=len(ar_terms))
 
         _prewarm_groq(logger)
+        try:
+            from app.tts.edge_tts_client import EdgeTTSClient
+
+            await EdgeTTSClient().prewarm_fallback()
+            logger.info("navigator_tts_fallback_prewarmed")
+        except Exception as exc:
+            logger.warning("navigator_tts_fallback_prewarm_failed", error=str(exc))
 
         logger.info("navigator_boot_ok")
 
-        runtime = NavigatorPipecatRuntime()
-        try:
-            asyncio.run(runtime.run())
-        except KeyboardInterrupt:
-            logger.info("navigator_stopped_by_user")
+        max_restarts = 50
+        restart_count = 0
+        restart_delay = 3.0
+
+        while restart_count < max_restarts:
+            runtime = NavigatorPipecatRuntime()
+            try:
+                logger.info("navigator_runtime_starting", attempt=restart_count + 1)
+                await runtime.run()
+                logger.info("navigator_runtime_clean_exit")
+                break
+            except KeyboardInterrupt:
+                logger.info("navigator_stopped_by_user")
+                break
+            except Exception as exc:
+                restart_count += 1
+                logger.error(
+                    "navigator_runtime_crashed",
+                    error=str(exc),
+                    restart_count=restart_count,
+                    restarting_in_sec=restart_delay,
+                    exc_info=True,
+                )
+                try:
+                    await runtime.shutdown()
+                except Exception as shutdown_exc:
+                    logger.warning("navigator_runtime_shutdown_after_crash_failed", error=str(shutdown_exc))
+                if restart_count >= max_restarts:
+                    logger.error("navigator_max_restarts_exceeded", max_restarts=max_restarts)
+                    sys.exit(1)
+                await asyncio.sleep(restart_delay)
+                logger.info("navigator_restarting")
     finally:
         get_logger(__name__).info("navigator_shutdown")
         shutdown_router()
@@ -81,4 +115,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

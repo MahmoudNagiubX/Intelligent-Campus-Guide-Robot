@@ -9,3 +9,58 @@ __pycache__/
 .Python
 env/
 venv/
+
+# Python
+*.py[cod]
+*$py.class
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+ENV/
+
+# Environment - NEVER commit secrets
+*.env
+
+# Database - runtime artifact, not source
+data/sqlite/*.db
+data/sqlite/*.db-wal
+data/sqlite/*.db-shm
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Pi runtime cache
+*.onnx.cache
+~/.cache/torch/
+
+# Edge-tts cache
+edge_tts_cache/
+
+# Temp files
+*.tmp
+*.bak
+*.orig

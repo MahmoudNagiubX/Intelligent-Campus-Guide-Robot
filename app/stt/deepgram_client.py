@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import sqlite3
 import threading
 import time
 import urllib.parse
@@ -165,6 +166,7 @@ class DeepgramStreamingClient:
         self._connect_options: dict[str, Any] = {}
         self._stop_requested = threading.Event()
         self._last_audio_activity = time.monotonic()
+        self._connect_lock = threading.Lock()
 
         logger.info(
             "deepgram_client_init",
@@ -207,54 +209,57 @@ class DeepgramStreamingClient:
         Repeated calls while already connected are ignored.
         """
         if self._mock:
-            if self._connected:
-                return
-            self._connected = True
+            with self._connect_lock:
+                if self._connected:
+                    return
+                self._connected = True
             logger.info("deepgram_mock_connected")
             self._notify_connected()
             return
 
-        if self._connected or (self._thread and self._thread.is_alive()):
-            return
+        with self._connect_lock:
+            if self._connected or (self._thread and self._thread.is_alive()):
+                logger.debug("deepgram_connect_already_active_skipping")
+                return
 
-        if not self._api_key:
-            message = "DEEPGRAM_API_KEY is missing."
-            logger.error("deepgram_no_api_key")
-            self._notify_error("deepgram_no_api_key", message)
-            return
+            if not self._api_key:
+                message = "DEEPGRAM_API_KEY is missing."
+                logger.error("deepgram_no_api_key")
+                self._notify_error("deepgram_no_api_key", message)
+                return
 
-        self._stop_requested.clear()
-        self._connect_ready.clear()
-        self._connect_error = None
-        self._connection = None
-        self._connected = False
-        self._clear_pending_audio()
-        self._clear_pending_segments()
-        self._connect_options = self._build_connect_options()
-        keyterm_prompting_active = "keyterm" in self._connect_options
+            self._stop_requested.clear()
+            self._connect_ready.clear()
+            self._connect_error = None
+            self._connection = None
+            self._connected = False
+            self._clear_pending_audio()
+            self._clear_pending_segments()
+            self._connect_options = self._build_connect_options()
+            keyterm_prompting_active = "keyterm" in self._connect_options
 
-        logger.info(
-            "deepgram_connect_options",
-            options=self._connect_options,
-            available_keyterms_count=len(self._keyterms),
-            active_keyterms_count=len(self._connect_options.get("keyterm", [])),
-            keyterm_prompting_active=keyterm_prompting_active,
-        )
+            logger.info(
+                "deepgram_connect_options",
+                options=self._connect_options,
+                available_keyterms_count=len(self._keyterms),
+                active_keyterms_count=len(self._connect_options.get("keyterm", [])),
+                keyterm_prompting_active=keyterm_prompting_active,
+            )
 
-        logger.info(
-            "deepgram_connecting",
-            language=self._language,
-            model=_DEEPGRAM_MODEL,
-            keyterms_count=len(self._keyterms),
-            keyterm_prompting_active=keyterm_prompting_active,
-        )
+            logger.info(
+                "deepgram_connecting",
+                language=self._language,
+                model=_DEEPGRAM_MODEL,
+                keyterms_count=len(self._keyterms),
+                keyterm_prompting_active=keyterm_prompting_active,
+            )
 
-        self._thread = threading.Thread(
-            target=self._run_async_loop,
-            daemon=True,
-            name="deepgram-stt",
-        )
-        self._thread.start()
+            self._thread = threading.Thread(
+                target=self._run_async_loop,
+                daemon=True,
+                name="deepgram-stt",
+            )
+            self._thread.start()
 
         if not self._connect_ready.wait(timeout=_CONNECT_WAIT_SEC):
             logger.warning("deepgram_connect_wait_timed_out", timeout_sec=_CONNECT_WAIT_SEC)
@@ -387,18 +392,20 @@ class DeepgramStreamingClient:
         reintroduces Nova-3 keyterm prompting using Deepgram's supported
         `keyterm` parameter when campus hints are available.
         """
+        cfg = get_settings()
+        language = "en" if cfg.english_only_mode else self._language
         options = {
-            "model": get_settings().deepgram_model or _DEEPGRAM_MODEL,
-            "language": self._language,
+            "model": cfg.deepgram_model or _DEEPGRAM_MODEL,
+            "language": language,
             "encoding": _DEEPGRAM_ENCODING,
             "sample_rate": _DEEPGRAM_SAMPLE_RATE,
             "channels": _DEEPGRAM_CHANNELS,
             "interim_results": True,
             "punctuate": True,
             "smart_format": True,
-            "utterance_end_ms": 1000,
+            "utterance_end_ms": cfg.deepgram_utterance_end_ms,
             "vad_events": True,
-            "endpointing": 300,
+            "endpointing": cfg.deepgram_endpointing_ms,
         }
         keyterm_options = self._build_nova3_keyterm_options()
         options.update(keyterm_options)
@@ -595,9 +602,16 @@ class DeepgramStreamingClient:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning("deepgram_keepalive_failed", error=str(exc))
-                self._notify_error("deepgram_keepalive_failed", str(exc))
+                self._on_keepalive_error(str(exc))
                 return
+
+    def _on_keepalive_error(self, error_message: str) -> None:
+        """Filter normal WebSocket close handshakes out of the error path."""
+        if "1000" in error_message and "OK" in error_message:
+            logger.debug("deepgram_ws_normal_close", message=error_message)
+            return
+        logger.warning("deepgram_keepalive_failed", error=error_message)
+        self._notify_error("deepgram_keepalive_failed", error_message)
 
     # Deepgram websocket callbacks --------------------------------------
 
@@ -828,7 +842,9 @@ class DeepgramStreamingClient:
 
         text = " ".join(self._pending_final_segments).strip()
         confidence = self._pending_final_confidence
-        detected_language = self._pending_final_language or self._language
+        detected_language = self._pending_final_language or (
+            "en" if self._language == "multi" else self._language
+        )
         language_confidence = self._pending_final_language_confidence
         self._clear_pending_segments()
 
@@ -859,16 +875,20 @@ class DeepgramStreamingClient:
     def _extract_detected_language(self, result: Any, alternative: Any) -> str:
         candidates = (
             getattr(result, "language", None),
-            getattr(result, "detected_language", None),
             getattr(alternative, "language", None),
+            getattr(getattr(result, "channel", None), "detected_language", None),
+            getattr(result, "detected_language", None),
             getattr(alternative, "detected_language", None),
             getattr(getattr(result, "metadata", None), "language", None),
             getattr(getattr(result, "metadata", None), "detected_language", None),
         )
         for candidate in candidates:
-            if isinstance(candidate, str) and candidate.strip():
-                return candidate.strip()
-        return self._language
+            if not isinstance(candidate, str):
+                continue
+            language = candidate.strip()
+            if language and language.lower() not in {"multi", "unknown"}:
+                return language
+        return "en"
 
     @staticmethod
     def _extract_language_confidence(result: Any, alternative: Any) -> Optional[float]:
@@ -922,6 +942,14 @@ def _load_column_values(conn, query: str) -> list[str]:
     return [row[0] for row in rows if row and row[0]]
 
 
+def _load_optional_column_values(conn, query: str) -> list[str]:
+    try:
+        return _load_column_values(conn, query)
+    except sqlite3.Error as exc:
+        logger.debug("deepgram_optional_keyterm_source_skipped", error=str(exc))
+        return []
+
+
 @lru_cache(maxsize=1)
 def load_keyterms_from_db() -> list[str]:
     """
@@ -936,27 +964,31 @@ def load_keyterms_from_db() -> list[str]:
     try:
         conn = get_db()
         groups = {
-            "staff": _load_column_values(
+            "staff": _load_optional_column_values(
                 conn,
                 "SELECT full_name FROM staff WHERE is_active=1 AND lang='en' ORDER BY full_name ASC;",
             ),
-            "labs": _load_column_values(
+            "labs": _load_optional_column_values(
                 conn,
                 "SELECT lab_name FROM labs WHERE is_active=1 AND lang='en' ORDER BY lab_name ASC;",
             ),
-            "rooms": _load_column_values(
+            "rooms": _load_optional_column_values(
                 conn,
                 "SELECT room_name FROM rooms WHERE is_active=1 AND lang='en' ORDER BY room_name ASC;",
             ),
-            "departments": _load_column_values(
+            "room_numbers": _load_optional_column_values(
+                conn,
+                "SELECT room_number FROM rooms WHERE is_active=1 AND lang='en' ORDER BY room_number ASC;",
+            ),
+            "departments": _load_optional_column_values(
                 conn,
                 "SELECT name FROM departments WHERE is_active=1 AND lang='en' ORDER BY name ASC;",
             ),
-            "landmarks": _load_column_values(
+            "landmarks": _load_optional_column_values(
                 conn,
                 "SELECT landmark_name FROM landmarks WHERE is_active=1 AND lang='en' ORDER BY landmark_name ASC;",
             ),
-            "aliases": _load_column_values(
+            "aliases": _load_optional_column_values(
                 conn,
                 """
                 SELECT alias_text FROM aliases
@@ -964,12 +996,35 @@ def load_keyterms_from_db() -> list[str]:
                 ORDER BY LENGTH(alias_text) DESC, alias_text ASC;
                 """,
             ),
+            "buildings": _load_optional_column_values(
+                conn,
+                "SELECT building_name FROM buildings WHERE is_active=1 AND lang='en' ORDER BY building_name ASC;",
+            ),
+            "members": _load_optional_column_values(
+                conn,
+                "SELECT full_name FROM members WHERE is_active=1 AND lang='en' ORDER BY full_name ASC;",
+            ),
+            "member_roles": _load_optional_column_values(
+                conn,
+                "SELECT role FROM members WHERE is_active=1 AND lang='en' AND role IS NOT NULL ORDER BY role ASC;",
+            ),
         }
 
         seen_terms: set[str] = set()
         curated_terms: list[str] = []
         group_counts: dict[str, int] = {}
-        for group_name in ("staff", "labs", "rooms", "departments", "landmarks", "aliases"):
+        for group_name in (
+            "staff",
+            "departments",
+            "labs",
+            "rooms",
+            "room_numbers",
+            "landmarks",
+            "aliases",
+            "buildings",
+            "members",
+            "member_roles",
+        ):
             before = len(curated_terms)
             _append_keyterms(curated_terms, groups[group_name], seen=seen_terms)
             group_counts[group_name] = len(curated_terms) - before

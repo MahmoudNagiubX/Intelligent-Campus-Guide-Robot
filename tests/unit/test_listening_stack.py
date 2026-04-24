@@ -146,7 +146,7 @@ class TestWakeWordDetectorMock:
 class TestWakeWordDetectorConfig:
     def test_model_reference_defaults_from_phrase(self, monkeypatch):
         monkeypatch.setenv("WAKE_WORD", "hey jarvis")
-        monkeypatch.delenv("WAKE_WORD_MODEL", raising=False)
+        monkeypatch.setenv("WAKE_WORD_MODEL", " ")
         get_settings.cache_clear()
         try:
             detector = WakeWordDetector(mock=True)
@@ -323,6 +323,34 @@ class TestSessionManager:
         sm.on_speech_end()
         sm.on_response_ready()
         assert sm.state == SessionState.SPEAKING
+
+    def test_timeout_pauses_while_speaking(self, monkeypatch):
+        monkeypatch.setenv("SESSION_TIMEOUT_SPEAKING_PAUSED", "true")
+        get_settings.cache_clear()
+        try:
+            sm = SessionManager(session_timeout_sec=1)
+            sm.on_wake_detected()
+            sm.start_timeout_timer()
+            sm.on_speech_end()
+            sm.on_response_ready()
+            time.sleep(1.3)
+            assert sm.state == SessionState.SPEAKING
+        finally:
+            sm.end_session("test_cleanup")
+            get_settings.cache_clear()
+
+    def test_error_reset_callback_fires(self):
+        resets = []
+        sm = SessionManager(session_timeout_sec=1, on_reset=lambda: resets.append(True))
+        sm.on_wake_detected()
+        sm.on_error("test")
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not resets:
+            time.sleep(0.02)
+
+        assert resets == [True]
+        assert sm.state == SessionState.IDLE
 
     def test_playback_complete_returns_to_idle(self):
         sm = self._make_sm()

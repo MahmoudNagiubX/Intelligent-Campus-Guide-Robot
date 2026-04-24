@@ -22,6 +22,7 @@ from app.pipeline.controller import ConversationController
 from app.pipeline.pipecat_graph import NavigatorPipecatRuntime
 from app.storage import bootstrap_schema, close_db
 from app.storage.sync_csv import sync_all_csvs
+from app.config import get_settings
 from app.utils.contracts import SessionState
 
 
@@ -92,7 +93,11 @@ async def _run_turn(runtime: NavigatorPipecatRuntime, text: str, language: str) 
     ]
     if not responses or not responses[-1]:
         return False, "empty response"
-    if language.startswith("ar") and not any("\u0600" <= ch <= "\u06FF" for ch in responses[-1]):
+    if (
+        language.startswith("ar")
+        and not get_settings().english_only_mode
+        and not any("\u0600" <= ch <= "\u06FF" for ch in responses[-1])
+    ):
         return False, "expected Arabic response"
     return True, responses[-1]
 

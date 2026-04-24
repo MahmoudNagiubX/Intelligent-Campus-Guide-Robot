@@ -228,7 +228,11 @@ class WakeWordDetector:
         if model_ref:
             return model_ref
         normalized = re.sub(r"[^a-z0-9]+", "_", wake_word.strip().lower())
-        return normalized.strip("_")
+        normalized = normalized.strip("_")
+        local_onnx = Path("models") / f"{normalized}.onnx"
+        if local_onnx.exists():
+            return local_onnx.as_posix()
+        return normalized
 
     @staticmethod
     def _is_model_path(model_ref: str) -> bool:

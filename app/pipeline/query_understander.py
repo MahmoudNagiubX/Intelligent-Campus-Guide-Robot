@@ -62,6 +62,18 @@ def understand(
     cleaned = (raw_query or "").strip()
     stripped = _PREFIX_RE.sub("", cleaned).strip()
     stripped = _SUFFIX_RE.sub("", stripped).strip(" .?!,")
+
+    if len(stripped) < 2:
+        stripped = cleaned
+
+    availability_match = re.match(
+        r"^(?:is|are)\s+(.+?)\s+(?:available|in|here|around|at his office|at her office)\??$",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if availability_match:
+        stripped = availability_match.group(1).strip()
+
     stripped = _ARTICLE_RE.sub("", stripped).strip()
 
     has_person_prefix = bool(re.match(r"^(?:dr|prof|professor|doctor)\.?\s+", stripped, re.IGNORECASE))

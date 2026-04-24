@@ -20,7 +20,7 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-EntityType = Literal["room", "lab", "department", "landmark", "staff", "any"]
+EntityType = Literal["room", "lab", "department", "landmark", "staff", "building", "member", "any"]
 _CONFIDENCE_THRESHOLD = 0.60
 
 
@@ -181,12 +181,50 @@ def _resolve_canonical_name(conn: sqlite3.Connection, entity_type: str, entity_i
         "department": ("departments", "name"),
         "landmark": ("landmarks", "landmark_name"),
         "staff": ("staff", "full_name"),
+        "building": ("buildings", "building_name"),
+        "member": ("members", "full_name"),
     }
     if entity_type not in mapping:
         return None
     table, column = mapping[entity_type]
     row = conn.execute(f"SELECT {column} FROM {table} WHERE id=?", (entity_id,)).fetchone()
     return row[0] if row else None
+
+
+def _search_buildings(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
+    results: list[_Candidate] = []
+    exact_id = conn.execute(
+        "SELECT * FROM buildings WHERE LOWER(building_id)=LOWER(?) AND lang=? AND is_active=1",
+        (q, lang),
+    ).fetchall()
+    for row in exact_id:
+        results.append(_Candidate("building", row["id"], row["building_name"], 0.99, "building_id_exact"))
+    if results:
+        return results
+
+    exact_name = conn.execute(
+        "SELECT * FROM buildings WHERE LOWER(building_name)=LOWER(?) AND lang=? AND is_active=1",
+        (q, lang),
+    ).fetchall()
+    for row in exact_name:
+        results.append(_Candidate("building", row["id"], row["building_name"], 0.95, "building_name_exact"))
+    if results:
+        return results
+
+    try:
+        for row in conn.execute(
+            """
+            SELECT b.* FROM fts_buildings f
+            JOIN buildings b ON b.id = f.rowid
+            WHERE fts_buildings MATCH ? AND f.lang=? AND b.is_active=1
+            LIMIT 5
+            """,
+            (_fts_query(q, lang), lang),
+        ).fetchall():
+            results.append(_Candidate("building", row["id"], row["building_name"], 0.72, "fts_buildings"))
+    except sqlite3.OperationalError as exc:
+        logger.warning("fts_buildings_error", error=str(exc))
+    return results
 
 
 def _search_rooms(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
@@ -197,7 +235,27 @@ def _search_rooms(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidat
         "SELECT * FROM rooms WHERE LOWER(room_number)=LOWER(?) AND lang=? AND is_active=1",
         (room_number_query, lang),
     ).fetchall():
-        results.append(_Candidate("room", row["id"], row["room_name"], 1.0, "room_number"))
+        prefix_match = re.match(r"^([a-zA-Z])", room_number_query)
+        confidence = 0.99
+        if prefix_match and row["building_id"].lower() != prefix_match.group(1).lower():
+            confidence = 0.90
+        results.append(
+            _Candidate(
+                "room",
+                row["id"],
+                row["room_name"] or row["room_number"],
+                confidence,
+                "room_number_exact",
+            )
+        )
+    if not results and re.match(r"^\d+$", q):
+        for row in conn.execute(
+            "SELECT * FROM rooms WHERE room_number LIKE ? AND lang=? AND is_active=1",
+            (f"%{q}", lang),
+        ).fetchall():
+            results.append(
+                _Candidate("room", row["id"], row["room_name"] or row["room_number"], 0.90, "room_number_suffix")
+            )
     if results:
         return results
 
@@ -221,7 +279,7 @@ def _search_rooms(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidat
             """,
             (_fts_query(q, lang), lang),
         ).fetchall():
-            results.append(_Candidate("room", row["id"], row["room_name"], 0.70, "fts_rooms"))
+            results.append(_Candidate("room", row["id"], row["room_name"] or row["room_number"], 0.70, "fts_rooms"))
     except sqlite3.OperationalError as exc:
         logger.warning("fts_rooms_error", error=str(exc))
     return results
@@ -238,6 +296,17 @@ def _search_labs(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate
         results.append(_Candidate("lab", row["id"], row["lab_name"], 0.95, "lab_name"))
     if results:
         return results
+
+    if lang == "en" and q.endswith(" lab"):
+        core = q.removesuffix(" lab").strip()
+        if len(core) >= 4:
+            for row in conn.execute(
+                "SELECT * FROM labs WHERE LOWER(lab_name) LIKE LOWER(?) AND lang=? AND is_active=1 LIMIT 5",
+                (f"%{core}%", lang),
+            ).fetchall():
+                results.append(_Candidate("lab", row["id"], q.title(), 0.96, "lab_name_core"))
+            if results:
+                return results
 
     try:
         for row in conn.execute(
@@ -314,18 +383,56 @@ def _search_landmarks(conn: sqlite3.Connection, q: str, lang: str) -> list[_Cand
     return results
 
 
+_TITLE_PREFIXES = re.compile(
+    r"^(?:dr\.?\s+|doctor\s+|prof\.?\s+|professor\s+|eng\.?\s+|ta\s+|"
+    r"assistant\s+professor\s+|assoc\.?\s+professor\s+|associate\s+professor\s+)",
+    re.IGNORECASE,
+)
+_STAFF_INTENT_PREFIXES = re.compile(
+    r"^(?:office\s+hours(?:\s+for)?|availability(?:\s+(?:of|for))?|available\s+hours(?:\s+for)?)\s+",
+    re.IGNORECASE,
+)
+
+
 def _search_staff(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
     results: list[_Candidate] = []
-    exact_rows = conn.execute(
-        "SELECT * FROM staff WHERE LOWER(full_name)=LOWER(?) AND is_active=1",
-        (q,),
-    ).fetchall()
-    for row in exact_rows:
-        results.append(_Candidate("staff", row["id"], row["full_name"], 0.95, "staff_exact"))
-    if results:
-        return results
+    queries_to_try = [q]
+    intent_stripped = _STAFF_INTENT_PREFIXES.sub("", q).strip()
+    if intent_stripped and intent_stripped != q:
+        queries_to_try.append(intent_stripped)
+
+    for value in list(queries_to_try):
+        stripped = _TITLE_PREFIXES.sub("", value).strip()
+        if stripped and stripped != value:
+            queries_to_try.append(stripped)
+
+    seen_attempts: set[str] = set()
+    for attempt in queries_to_try:
+        if not attempt or attempt in seen_attempts:
+            continue
+        seen_attempts.add(attempt)
+
+        exact_rows = conn.execute(
+            "SELECT * FROM staff WHERE LOWER(full_name)=LOWER(?) AND is_active=1",
+            (attempt,),
+        ).fetchall()
+        for row in exact_rows:
+            results.append(_Candidate("staff", row["id"], row["full_name"], 0.95, "staff_exact"))
+        if results:
+            return results
+
+        if len(attempt) >= 3:
+            partial_rows = conn.execute(
+                "SELECT * FROM staff WHERE LOWER(full_name) LIKE LOWER(?) AND is_active=1 LIMIT 5",
+                (f"%{attempt}%",),
+            ).fetchall()
+            for row in partial_rows:
+                results.append(_Candidate("staff", row["id"], row["full_name"], 0.82, "staff_partial"))
+            if results:
+                return results
 
     if lang == "en":
+        stripped = _TITLE_PREFIXES.sub("", intent_stripped or q).strip()
         try:
             for row in conn.execute(
                 """
@@ -334,11 +441,67 @@ def _search_staff(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidat
                 WHERE fts_staff MATCH ? AND s.is_active=1
                 LIMIT 5
                 """,
-                (_fts_query(q, lang),),
+                (_fts_query(stripped or q, lang),),
             ).fetchall():
                 results.append(_Candidate("staff", row["id"], row["full_name"], 0.68, "fts_staff"))
         except sqlite3.OperationalError as exc:
             logger.warning("fts_staff_error", error=str(exc))
+    return results
+
+
+def _search_members(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
+    results: list[_Candidate] = []
+    team_query = q.replace(" team", "").strip()
+    if team_query:
+        for row in conn.execute(
+            """
+            SELECT * FROM members
+            WHERE LOWER(team)=LOWER(?) AND lang=? AND is_active=1
+            ORDER BY
+                CASE
+                    WHEN LOWER(role) LIKE '%president%' THEN 0
+                    WHEN LOWER(role) LIKE '%leader%' THEN 1
+                    ELSE 2
+                END,
+                full_name
+            LIMIT 1
+            """,
+            (team_query, lang),
+        ).fetchall():
+            results.append(_Candidate("member", row["id"], row["team"] or row["full_name"], 0.90, "member_team"))
+        if results:
+            return results
+
+    for row in conn.execute(
+        "SELECT * FROM members WHERE LOWER(full_name)=LOWER(?) AND lang=? AND is_active=1",
+        (q, lang),
+    ).fetchall():
+        results.append(_Candidate("member", row["id"], row["full_name"], 0.95, "member_exact"))
+    if results:
+        return results
+
+    if len(q) >= 3:
+        for row in conn.execute(
+            "SELECT * FROM members WHERE LOWER(full_name) LIKE LOWER(?) AND lang=? AND is_active=1 LIMIT 5",
+            (f"%{q}%", lang),
+        ).fetchall():
+            results.append(_Candidate("member", row["id"], row["full_name"], 0.82, "member_partial"))
+        if results:
+            return results
+
+    try:
+        for row in conn.execute(
+            """
+            SELECT m.* FROM fts_members f
+            JOIN members m ON m.id = f.rowid
+            WHERE fts_members MATCH ? AND f.lang=? AND m.is_active=1
+            LIMIT 5
+            """,
+            (_fts_query(q, lang), lang),
+        ).fetchall():
+            results.append(_Candidate("member", row["id"], row["full_name"], 0.62, "fts_members"))
+    except sqlite3.OperationalError as exc:
+        logger.warning("fts_members_error", error=str(exc))
     return results
 
 
@@ -366,6 +529,25 @@ def _hydrate_room(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts
             floor=row["floor_id"],
             room=row["room_number"],
             description=row["room_type"],
+        ),
+        nav["nav_code"] if nav else None,
+        nav["safety_notes"] if nav else None,
+    )
+
+
+def _hydrate_building(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
+    row = conn.execute(
+        "SELECT building_id, building_name, description FROM buildings WHERE id=?",
+        (entity_id,),
+    ).fetchone()
+    nav = conn.execute(
+        "SELECT nav_code, safety_notes FROM navigation_targets WHERE target_type='building' AND canonical_id=?",
+        (entity_id,),
+    ).fetchone()
+    return (
+        SpokenFacts(
+            building=row["building_id"],
+            description=row["description"] or row["building_name"],
         ),
         nav["nav_code"] if nav else None,
         nav["safety_notes"] if nav else None,
@@ -435,14 +617,64 @@ def _hydrate_landmark(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenF
 
 
 def _hydrate_staff(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
-    row = conn.execute(
-        "SELECT department_code, office_room, contact_notes FROM staff WHERE id=?",
+    """
+    Hydrate staff with full office-room details, office hours, and room nav code.
+    """
+    staff_row = conn.execute(
+        "SELECT source_staff_id, full_name, title, department_code, office_room, contact_notes FROM staff WHERE id=?",
         (entity_id,),
     ).fetchone()
-    office_hours_rows = conn.execute(
-        "SELECT weekday, start_time, end_time FROM office_hours WHERE staff_full_name=(SELECT full_name FROM staff WHERE id=?) ORDER BY weekday",
-        (entity_id,),
-    ).fetchall()
+
+    if not staff_row:
+        return SpokenFacts(), None, None
+
+    office_room_id = staff_row["office_room"]
+    building = floor = room_number = None
+    nav_code = None
+
+    if office_room_id:
+        room_row = conn.execute(
+            "SELECT id, building_id, floor_id, room_number FROM rooms WHERE LOWER(room_number)=LOWER(?) AND lang='en' LIMIT 1",
+            (office_room_id,),
+        ).fetchone()
+        if room_row:
+            building = room_row["building_id"]
+            floor = room_row["floor_id"]
+            room_number = room_row["room_number"]
+            nav_row = conn.execute(
+                "SELECT nav_code FROM navigation_targets WHERE target_type='room' AND canonical_id=?",
+                (room_row["id"],),
+            ).fetchone()
+            if nav_row:
+                nav_code = nav_row["nav_code"]
+        else:
+            room_number = office_room_id
+
+    office_hours_rows = []
+    if staff_row["source_staff_id"]:
+        office_hours_rows = conn.execute(
+            "SELECT weekday, start_time, end_time FROM office_hours "
+            "WHERE staff_id=? AND COALESCE(lang, 'en')='en' ORDER BY weekday",
+            (staff_row["source_staff_id"],),
+        ).fetchall()
+
+    if not office_hours_rows:
+        office_hours_rows = conn.execute(
+            "SELECT weekday, start_time, end_time FROM office_hours "
+            "WHERE staff_full_name=(SELECT full_name FROM staff WHERE id=?) "
+            "AND COALESCE(lang, 'en')='en' ORDER BY weekday",
+            (entity_id,),
+        ).fetchall()
+
+    if not office_hours_rows and staff_row["full_name"]:
+        last_name = staff_row["full_name"].split()[-1]
+        office_hours_rows = conn.execute(
+            "SELECT weekday, start_time, end_time FROM office_hours "
+            "WHERE LOWER(staff_full_name) LIKE LOWER(?) "
+            "AND COALESCE(lang, 'en')='en' ORDER BY weekday",
+            (f"%{last_name}%",),
+        ).fetchall()
+
     office_hours = None
     if office_hours_rows:
         office_hours = ", ".join(
@@ -450,24 +682,40 @@ def _hydrate_staff(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFact
         )
     return (
         SpokenFacts(
-            building=None,
-            floor=None,
-            room=row["office_room"],
-            description=row["department_code"],
+            building=building,
+            floor=floor,
+            room=room_number,
+            description=staff_row["department_code"],
             office_hours=office_hours,
-            contact_notes=row["contact_notes"],
+            contact_notes=staff_row["contact_notes"],
+            title=staff_row["title"],
         ),
-        None,
+        nav_code,
         None,
     )
 
 
+def _hydrate_member(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
+    row = conn.execute(
+        "SELECT full_name, role, team, bio FROM members WHERE id=?",
+        (entity_id,),
+    ).fetchone()
+    desc = row["role"] or ""
+    if row["team"]:
+        desc = f"{desc} on the {row['team']} team" if desc else f"{row['team']} team member"
+    if row["bio"]:
+        desc = f"{desc}. {row['bio']}" if desc else row["bio"]
+    return SpokenFacts(description=desc), None, None
+
+
 _HYDRATORS = {
+    "building": _hydrate_building,
     "room": _hydrate_room,
     "lab": _hydrate_lab,
     "department": _hydrate_department,
     "landmark": _hydrate_landmark,
     "staff": _hydrate_staff,
+    "member": _hydrate_member,
 }
 
 
@@ -487,6 +735,8 @@ def _search_in_lang(
     logger.debug("retrieval_start", query=query, normalized=normalized, lang=scoped_lang, entity_type=entity_type)
     candidates = _search_aliases(conn, normalized, scoped_lang)
 
+    if entity_type in ("building", "any"):
+        candidates.extend(_search_buildings(conn, normalized, scoped_lang))
     if entity_type in ("room", "any"):
         candidates.extend(_search_rooms(conn, normalized, scoped_lang))
     if entity_type in ("lab", "any"):
@@ -497,6 +747,8 @@ def _search_in_lang(
         candidates.extend(_search_landmarks(conn, normalized, scoped_lang))
     if entity_type in ("staff", "any"):
         candidates.extend(_search_staff(conn, normalized, scoped_lang))
+    if entity_type in ("member", "any"):
+        candidates.extend(_search_members(conn, normalized, scoped_lang))
 
     ranked = _rank_candidates(candidates)
     candidate_names = [candidate.canonical_name for candidate in ranked[:top_k]]
@@ -513,7 +765,20 @@ def _search_in_lang(
     second_score = second.confidence if second else 0.0
     score_margin = top.confidence - second_score if second else top.confidence
 
-    if second and top.entity_type == second.entity_type and top.confidence >= 0.55 and second.confidence >= 0.55 and score_margin < 0.15:
+    exact_room_number_match = (
+        top.entity_type == "room"
+        and top.matched_via in {"room_number_exact", "room_number_suffix"}
+        and second is not None
+        and second.matched_via == top.matched_via
+    )
+    if (
+        second
+        and not exact_room_number_match
+        and top.entity_type == second.entity_type
+        and top.confidence >= 0.55
+        and second.confidence >= 0.55
+        and score_margin < 0.15
+    ):
         return RetrievalResult(
             status=RetrievalStatus.AMBIGUOUS,
             confidence=top.confidence,

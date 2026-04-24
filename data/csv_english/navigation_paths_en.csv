@@ -1,87 +1,60 @@
-path_id,from_room_id,to_room_id,path_steps,estimated_distance (m),estimated_time (s)
-1,C101,C214,Walk from C101 to lefthand stairwell; go up to second floor; exit near C201; Turn right ; C214 is at the front.,33,30
-2,C101,C209,Walk from C101 to lefthand stairwell; go up to second floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle (C207 C208); C209 is immediately to the right (back right corner).,67,65
-3,C101,C206,Walk from C101 to lefthand stairwell; go up to second floor; exit near C201; walk past C202 C203 C204 C205; C206 is at the back of the left side.,54,45
-4,C101,C201,Walk from C101 to lefthand stairwell; go up to second floor; exit near C201; C201 is immediately there.,20,20
-5,C101,C115,Walk from C101 past the main entrance of the building; C115 is at the front right (stay on first floor).,13,10
-6,C101,C114,Walk from C101 past the main entrance of the building; C115 is at the front right (stay on first floor).,13,10
-7,C101,C109,Walk from C101 past C102 C103 C104 C105 C106 cross middle (C107 C108); C109 is immediately after C108 on the right side (back right).,47,35
-8,C101,C106,Walk from C101 past C102 C103 C104 C105; C106 is at the back of the left side.,30,35
-9,C101,Lavatory 1,Walk from C101 past C102 C103 C104 C105 C106 cross middle (C107 C108) then C109; Staff bathroom is behind the right stairwell near C109.,43,35
-10,C101,Lavatory 2,Walk from C101 to left stairwell; go up to second floor; exit near C201; walk past C202 C203 C204 C205 C206 cross middle (C207 C208);Students' bathroom is behind the right stairwell near C209.,63,55
-11,C106,C214,Walk from C106 past middle (C107 C108) to righthand stairwell; go up to second floor; exit near C209; walk past C2010 C211 C212 C213; C214 is at the front right.,47,55
-12,C106,C209,Walk from C106 past middle (C107 C108) to the righthand stairwell; go up to second floor; exit near C209.,23,30
-13,C106,C206,Walk from C106 past middle (C107 C108) to the righthand stairwell; go up to second floor; exit near C209; cross middle (C208 C207); C206 is at the back of the left side.,46,40
-14,C106,C201,Walk from C106 to lefthand stairwell; go up to second floor; exit near C201; C201 is at the far left end.,54,45
-15,C106,C115,Walk from C106 cross middle (C107 C108) then C109 C110 C111 C112 C113 C114; C115 is at the front right (stay on first floor).,47,30
-16,C106,C114,Walk from C106 cross middle (C107 C108) then C109 C110 C111 C112 C113; C114 is on the right side.,47,30
-17,C106,C109,Walk from C106 cross middle (C107 C108); C109 is immediately after C108 on the right side.,0,0
-18,C106,C106,You are already in C106.,13,10
-19,C106,Lavatory 1,Walk from C106 cross middle (C107 C108) then C109;Staff bathroom is behind the right stairwell near C109.,13,10
-20,C106,Lavatory 2,Walk from C106 past middle (C107 C108) to the right stairwell; go up to second floor; Students' bathroom is to the left of the stairwell,23,30
-21,C109,C214,Walk from C109 (near righthand stairwell) into righthand stairwell; go up to second floor; exit near C209; walk past C210 C211 C212 C213; C214 is at the front right.,54,45
-22,C109,C209,Walk from C109 into righthand stairwell; go up to second floor; exit near C209; C209 is immediately there.,20,20
-23,C109,C206,Walk from C109 into righthand stairwell; go up to second floor; exit near C209; walk left past C208 C207; C206 is next after C207.,33,30
-24,C109,C201,Walk from C109 into righthand stairwell; go up to second floor; exit near C209; walk left past C208 C207 C206 C205 C204 C203 C202; C201 is at the far left end.,67,65
-25,C109,C115,Walk from C109 past C110 C111 C112 C113 C114; C115 is at the front right (stay on first floor).,34,25
-26,C109,C114,Walk from C109 past C110 C111 C112 C113; C114 is on the right side.,34,25
-27,C109,C109,You are already in C109.,0,0
-28,C109,C106,Walk from C109 cross middle (C108 C107) then C106; C106 is at the back of the left side (stay on first floor).,13,10
-29,C109,C101,Walk from C109 cross middle (C108 C107) then C106 C105 C104 C103 C102; C101 is at the front left (stay on first floor).,47,35
-30,C109,Lavatory 1,Staff bathroom is directly next to you near the right stairwell. ,0,0
-31,C109,Lavatory 2,Walk from C109 into right stairwell; go up to second floor; exit near C209;Students' bathroom is next to the righthand stairwell near C209.,20,20
-32,C114,C214,Walk from C114 toward back; pass C113 C112 C111 C110; reach C109 and righthand stairwell; go up to second floor; exit near C209; walk past C210 C211 C212 C213; C214 is at the front right.,88,70
-33,C114,C209,Walk from C114 toward back; pass C113 C112 C111 C110; reach C109 and righthand stairwell; go up to second floor; exit near C209; C209 is immediately there.,54,45
-34,C114,C206,Walk from C114 toward back; pass C113 C112 C111 C110; reach C109 and righthand stairwell; go up to second floor; exit near C209; walk left past C208 C207; C206 is next after C207.,67,65
-35,C114,C201,Walk from C114 to the lefthand stairwell; go up to second floor; exit near C201.,23,30
-36,C114,C115,Walk from C114 to C115; C115 is immediately next toward the front (stay on first floor).,0,0
-37,C114,C114,You are already in C114.,0,0
-38,C114,C109,Walk from C114 toward back; pass C113 C112 C111 C110; C109 is at the back right (stay on first floor).,34,25
-39,C114,C106,Walk from C114 toward back; pass C113 C112 C111 C110 C109 cross middle (C108 C107); C106 is at the back of the left side (stay on first floor).,47,35
-40,C114,C101,Walk from C114 toward the lefthand stairwell; C101 is to the right of the stairwell,13,10
-41,C114,Lavatory 1,Walk from C114 toward back; pass C113 C112 C111 C110; reach C109; Staff bathroom is behind the righthand stairwell near C109.,34,25
-42,C114,Lavatory 2,Walk from C114 toward back; pass C113 C112 C111 C110; reach C109 and righthand stairwell; go up to second floor; exit near C209; Students' bathroom is next to the righthand stairwell near C209.,54,45
-43,C201,C214,Walk from C201 past C202 C203 C204 C205 C206 cross middle (C207 C208) then C209 C210 C211 C212 C213; C214 is at the front right (stay on second floor).,13,10
-44,C201,C209,Walk from C201 past C202 C203 C204 C205 C206 cross middle (C207 C208); C209 is immediately after C208 on the right side.,47,35
-45,C201,C206,Walk from C201 past C202 C203 C204 C205; C206 is at the back of the left side.,30,35
-46,C201,C201,You are already in C201.,0,0
-47,C201,C115,Walk from C201 to lefthand stairwell; go down to first floor; exit near C101; walk past C102 C103 C104 C105 C106 cross middle (C107 C108) then C109 C110 C111 C112 C113 C114; C115 is at the front right.,33,30
-48,C201,C114,Walk from C201 to lefthand stairwell; go down to first floor; exit near C101; walk past C102 C103 C104 C105 C106 cross middle (C107 C108) then C109 C110 C111 C112 C113; C114 is on the right side.,33,30
-49,C201,C109,Walk from C201 to lefthand stairwell; go down to first floor; exit near C101; walk past C102 C103 C104 C105 C106 cross middle (C107 C108); C109 is immediately after C108 on the right side.,67,65
-50,C201,C106,Walk from C201 to lefthand stairwell; go down to first floor; exit near C101; walk past C102 C103 C104 C105; C106 is at the back of the left side.,23,30
-51,C201,C101,Walk from C201 to lefthand stairwell; go down to first floor; exit near C101; C101 is immediately there.,20,20
-52,C201,Lavatory 1,Walk from C201 to lefthand stairwell; go down to first floor; exit near C101; walk past C102 C103 C104 C105 C106 cross middle (C107 C108) then C109; Staff bathroom is behind the right stairwell near C109.,67,55
-53,C201,Lavatory 2,Walk from C201 past C202 C203 C204 C205 C206 cross middle (C207 C208); Students' bathroom is behind the righthand stairwell near C209.,47,35
-54,C206,C214,Walk from C206 cross middle (C207 C208) then C209 C210 C211 C212 C213; C214 is at the front right (stay on second floor).,47,35
-55,C206,C209,Walk from C206 cross middle (C207 C208); C209 is immediately after C208 on the right side.,13,10
-56,C206,C206,You are already in C206.,0,0
-57,C206,C201,Walk from C206 past C205 C204 C203 C202; C201 is at the front left (stay on second floor).,34,25
-58,C206,C115,Walk from C206 to lefthand stairwell; go down to first floor; exit near C101; walk past the entrance to C115,67,55
-59,C206,C114,Walk from C206 to lefthand stairwell; go down to first floor; exit near C101; walk past walk past the entrance to C114,67,55
-60,C206,C109,Walk from C206 to righthand stairwell; go down to first floor; exit near C109.,23,30
-61,C206,C106,Walk from C206 to righthand stairwell; go down to first floor; exit near C109; walk past C108 C107; C106 is on your left,46,40
-62,C206,C101,Walk from C206 to lefthand stairwell; go down to first floor; exit near C101; C101 is immediately there.,80,65
-63,C206,Lavatory 1,Walk from C206 to the righthand stairwell; go down to first floor; exit near C109; Staff bathroom is to the left of the stairwell.,33,30
-64,C206,Lavatory 2,Walk from C206 cross middle (C207 C208); Students' bathroom is behind the right stairwell near C209.,13,10
-65,C209,C214,Walk from C209 past C210 C211 C212 C213; C214 is at the front right (stay on second floor).,34,25
-66,C209,C209,You are already in C209.,0,0
-67,C209,C206,Walk from C209 cross middle (C208 C207); C206 is next after C207 (stay on second floor).,13,10
-68,C209,C201,Walk from C209 cross middle (C208 C207) then C206 C205 C204 C203 C202; C201 is at the front left (stay on second floor).,47,35
-69,C209,C115,Walk from C209 into righthand stairwell; go down to first floor; exit near C109; walk past C110 C111 C112 C113 C114; C115 is at the front right.,54,45
-70,C209,C114,Walk from C209 into righthand stairwell; go down to first floor; exit near C109; walk past C110 C111 C112 C113; C114 is on the right side.,54,45
-71,C209,C109,Walk from C209 into righthand stairwell; go down to first floor; exit near C109; C109 is immediately there.,20,20
-72,C209,C106,Walk from C209 into righthand stairwell; go down to first floor; exit near C109; cross middle (C108 C107); C106 is at the back of the left side.,33,30
-73,C209,C101,Walk from C209 into righthand stairwell; go down to first floor; exit near C109; cross middle (C108 C107) then C106 C105 C104 C103 C102; C101 is at the front left.,67,55
-74,C209,Lavatory 1,Walk from C209 into righthand stairwell; go down to first floor; exit near C109; Staff bathroom is behind the right stairwell near C109.,54,45
-75,C209,Lavatory 2,Students' bathroom is directly next to you near the right stairwell. ,0,0
-76,C214,C214,You are already in C214.,0,0
-77,C214,C209,Walk from C214 toward back; pass C213 C212 C211 C210; C209 is at the back right (stay on second floor).,34,25
-78,C214,C206,Walk from C214 toward back; pass C213 C212 C211 C210 C209 cross middle (C208 C207); C206 is next after C207.,47,35
-79,C214,C201,Walk from C214 toward back; pass C213 C212 C211 C210 C209 cross middle (C208 C207) then C206 C205 C204 C203 C202; C201 is at the front left.,13,10
-80,C214,C115,Walk from C214 toward back; pass C213 C212 C211 C210; reach C209 and righthand stairwell; go down to first floor; exit near C109; walk past C110 C111 C112 C113 C114; C115 is at the front right.,46,40
-81,C214,C114,Walk from C214 toward back; pass C213 C212 C211 C210; reach C209 and righthand stairwell; go down to first floor; exit near C109; walk past C110 C111 C112 C113; C114 is on the right side.,46,40
-82,C214,C109,Walk from C214 toward back; pass C213 C212 C211 C210; reach C209 and righthand stairwell; go down to first floor; exit near C109; C109 is immediately there.,54,45
-83,C214,C106,Walk from C214 toward back; pass C213 C212 C211 C210; reach C209 and righthand stairwell; go down to first floor; exit near C109; cross middle (C108 C107); C106 is at the back of the left side.,67,55
-84,C214,C101,Walk from C214 toward back; pass C213 C212 C211 C210; reach C209 and righthand stairwell; go down to first floor; exit near C109; cross middle (C108 C107) then C106 C105 C104 C103 C102; C101 is at the front left.,33,30
-85,C214,Lavatory 1,Walk from C214 toward back; pass C213 C212 C211 C210; reach C209 and righthand stairwell; go down to first floor; exit near C109; Staff bathroom C1 is behind the right stairwell near C109.,54,45
-86,C214,Lavatory 2,Walk from C214 toward back; pass C213 C212 C211 C210; reach C209; Students' bathroom is behind the righthand stairwell near C209.,34,25
+target_type,canonical_name,nav_code,safety_notes
+building,Building C,NAV_BLDG_C,
+building,Building A,NAV_BLDG_A,
+building,Building B,NAV_BLDG_B,
+building,Building D,NAV_BLDG_D,
+building,Building E,NAV_BLDG_E,
+department,Software Engineering Department,NAV_DEPT_SET,
+department,Civil Engineering Department,NAV_DEPT_CBE,
+department,Mechatronics Engineering Department,NAV_DEPT_MCT,
+department,Renewable Energy Engineering Department,NAV_DEPT_ERG,
+room,C101,NAV_ROOM_C101,
+room,C102,NAV_ROOM_C102,
+room,C103,NAV_ROOM_C103,
+room,C104,NAV_ROOM_C104,
+room,C105,NAV_ROOM_C105,
+room,C106,NAV_ROOM_C106,
+room,C107,NAV_ROOM_C107,
+room,C108,NAV_ROOM_C108,
+room,C109,NAV_ROOM_C109,
+room,C110,NAV_ROOM_C110,
+room,C111,NAV_ROOM_C111,
+room,C112,NAV_ROOM_C112,
+room,C113,NAV_ROOM_C113,
+room,C114,NAV_ROOM_C114,
+room,C115,NAV_ROOM_C115,
+room,C201,NAV_ROOM_C201,
+room,C202,NAV_ROOM_C202,
+room,C203,NAV_ROOM_C203,
+room,C204,NAV_ROOM_C204,
+room,C205,NAV_ROOM_C205,
+room,C206,NAV_ROOM_C206,
+room,C207,NAV_ROOM_C207,
+room,C208,NAV_ROOM_C208,
+room,C209,NAV_ROOM_C209,
+room,C210,NAV_ROOM_C210,
+room,C211,NAV_ROOM_C211,
+room,C212,NAV_ROOM_C212,
+room,C213,NAV_ROOM_C213,
+room,C214,NAV_ROOM_C214,
+lab,Theory of mechanics,NAV_LAB_THEORY_OF_MECHANICS,
+lab,CNC,NAV_LAB_CNC,
+lab,Stress Lab,NAV_LAB_STRESS_LAB,
+lab,Robotics and Machine Vision,NAV_LAB_ROBOTICS_AND_MACHINE_VISION,
+lab,Automatic Control,NAV_LAB_AUTOMATIC_CONTROL,
+lab,Prototyping,NAV_LAB_PROTOTYPING,
+lab,Festo Pneumonics and Hydrolics Lab,NAV_LAB_FESTO_PNEUMONICS_AND_HYDROLICS,
+lab,Digital Design and Microcontrollers,NAV_LAB_DIGITAL_DESIGN_AND_MICROCONTROLLERS,
+lab,Introduction to Mechatronics,NAV_LAB_INTRODUCTION_TO_MECHATRONICS,
+lab,Industrial Networks and Embedded Systems Lab,NAV_LAB_INDUSTRIAL_NETWORKS_AND_EMBEDDED_SYSTEMS,
+lab,Fluid Mechatronics lab,NAV_LAB_FLUID_MECHATRONICS,
+lab,Power Electronics,NAV_LAB_POWER_ELECTRONICS,
+lab,Motor Drives,NAV_LAB_MOTOR_DRIVES,
+lab,Electric and Electronic Measurements,NAV_LAB_ELECTRIC_AND_ELECTRONIC_MEASUREMENTS,
+lab,Signals and Systems,NAV_LAB_SIGNALS_AND_SYSTEMS,
+lab,Electric and Electronic Circuits Lab,NAV_LAB_ELECTRIC_AND_ELECTRONIC_CIRCUITS,
+lab,Thermodynamics,NAV_LAB_THERMODYNAMICS,
+lab,Heat Transfer Lab,NAV_LAB_HEAT_TRANSFER,
+lab,PLC,NAV_LAB_PLC,
+lab,Mechatronics Measurement,NAV_LAB_MECHATRONICS_MEASUREMENT,
+lab,Machine Design Lab,NAV_LAB_MACHINE_DESIGN,

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from app.pipeline.controller import ConversationController
 from app.pipeline.language_detector import LangResult
+from app.retrieval.arabic_hybrid_retriever import ArabicHybridResult
 from app.retrieval.hybrid_retriever import HybridResult
 from app.utils.contracts import (
     IntentClass,
@@ -91,17 +92,21 @@ def test_controller_wires_detected_language_to_router_search_and_response_langua
             ),
         ) as route_mock:
             with patch(
-                "app.pipeline.controller.search",
-                return_value=RetrievalResult(
-                    status=RetrievalStatus.OK,
-                    entity_type="room",
-                    entity_id=2,
-                    canonical_name="معمل الروبوتات",
-                    spoken_facts=SpokenFacts(building="C", floor="1", room="C105"),
-                    nav_code="NAV_C105",
-                    confidence=0.95,
+                "app.pipeline.controller.retrieve_arabic_hybrid",
+                return_value=ArabicHybridResult(
+                    answered_by="db",
+                    understood=MagicMock(best_entity="معمل الروبوتات", query_type="location"),
+                    db_result=RetrievalResult(
+                        status=RetrievalStatus.OK,
+                        entity_type="room",
+                        entity_id=2,
+                        canonical_name="معمل الروبوتات",
+                        spoken_facts=SpokenFacts(building="C", floor="1", room="C105"),
+                        nav_code="NAV_C105",
+                        confidence=0.95,
+                    ),
                 ),
-            ) as search_mock:
+            ) as hybrid_mock:
                 with patch("app.pipeline.response_composer._campus_prompt_for", return_value="{retrieval_facts}"):
                     result = controller.handle_transcript(
                         _event("فين معمل الروبوتات", language="ar-EG", language_confidence=0.97)
@@ -110,7 +115,7 @@ def test_controller_wires_detected_language_to_router_search_and_response_langua
     routed_text = route_mock.call_args.args[0]
     assert routed_text
     route_mock.assert_called_once_with(routed_text, lang_hint="ar-EG")
-    search_mock.assert_called_once_with("معمل الروبوتات", lang="ar-EG")
+    hybrid_mock.assert_called_once()
     assert result.language == "ar-EG"
 
 
@@ -185,3 +190,23 @@ def test_controller_unknown_bypasses_hybrid_retrieval() -> None:
     assert result.language == "en"
     assert result.text
     hybrid_mock.assert_not_called()
+
+
+def test_controller_arabic_unknown_bypasses_all_retrieval() -> None:
+    controller = ConversationController(groq=_GroqTextStub())
+
+    with patch("app.pipeline.controller.detect_language", return_value=LangResult("ar-EG", "unicode_heuristic", 0.99)):
+        with patch(
+            "app.pipeline.controller.route",
+            return_value=_intent(IntentClass.UNKNOWN, target_text=None, raw_query="الجامعة اتأسست امتى", language="ar"),
+        ):
+            with patch("app.pipeline.controller.retrieve_arabic_hybrid") as arabic_hybrid_mock:
+                with patch("app.pipeline.controller.retrieve_hybrid") as english_hybrid_mock:
+                    with patch("app.pipeline.controller.search") as search_mock:
+                        result = controller.handle_transcript(_event("الجامعة اتأسست امتى", language="ar-EG"))
+
+    assert result.language == "ar-EG"
+    assert result.text
+    arabic_hybrid_mock.assert_not_called()
+    english_hybrid_mock.assert_not_called()
+    search_mock.assert_not_called()

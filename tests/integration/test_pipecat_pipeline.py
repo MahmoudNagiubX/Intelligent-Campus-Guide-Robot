@@ -88,7 +88,7 @@ def test_csv_sync_into_sqlite(monkeypatch, tmp_path):
     assert counts["rooms"] > 0
     assert counts["departments"] > 0
     assert counts["staff"] > 0
-    assert counts["navigation_targets"] == 0
+    assert counts["navigation_targets"] > 0
 
 
 @pytest.mark.asyncio
@@ -140,6 +140,9 @@ async def test_navigation_request_emits_action_payload(monkeypatch, tmp_path):
         """
         INSERT INTO navigation_targets (target_type, canonical_id, nav_code, updated_at)
         VALUES ('room', ?, 'NAV_C105', datetime('now'))
+        ON CONFLICT(target_type, canonical_id) DO UPDATE SET
+            nav_code=excluded.nav_code,
+            updated_at=excluded.updated_at
         """,
         (room_id,),
     )
@@ -177,7 +180,7 @@ async def test_navigation_request_emits_action_payload(monkeypatch, tmp_path):
 
         events = [event.name for event in runtime.tracer.events()]
         assert captured_payload["action"] == "navigate"
-        assert captured_payload["target_code"] == "NAV_C105"
+        assert captured_payload["target_code"] == "NAV_LAB_ROBOTICS_AND_MACHINE_VISION"
         assert "action_emitted" in events
     finally:
         await runtime.shutdown()

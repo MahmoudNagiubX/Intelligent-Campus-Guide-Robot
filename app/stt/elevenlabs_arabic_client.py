@@ -39,6 +39,7 @@ _CONNECT_WAIT_SEC = 6.0
 _KEEPALIVE_SEC = 5.0
 _PENDING_AUDIO_LIMIT = 1024
 _ARABIC_LANG_PREFIXES = ("ar",)
+_ELEVENLABS_PERMANENTLY_DISABLED: bool = False
 
 
 class ElevenLabsArabicClient:
@@ -53,6 +54,8 @@ class ElevenLabsArabicClient:
         mock: If True, no network calls. Use inject_mock_transcript().
         session_id: Optional session ID attached to transcript events.
     """
+
+    _process_permanently_disabled = False
 
     def __init__(
         self,
@@ -88,6 +91,7 @@ class ElevenLabsArabicClient:
         self._connect_error: Optional[str] = None
         self._stop_requested = threading.Event()
         self._last_final_text: Optional[str] = None
+        self._permanently_disabled = self.__class__._process_permanently_disabled
 
         logger.info(
             "elevenlabs_arabic_client_init",
@@ -120,12 +124,34 @@ class ElevenLabsArabicClient:
 
     def connect(self) -> None:
         """Open the ElevenLabs WebSocket. Blocks until connected or timeout."""
+        if get_settings().english_only_mode:
+            logger.info("elevenlabs_stt.skipped_english_only_mode")
+            self._connected = True
+            self._connect_ready.set()
+            return
+
         if self._mock:
             if self._connected:
                 return
             self._connected = True
             logger.info("elevenlabs_arabic_mock_connected")
             self._notify_connected()
+            return
+
+        global _ELEVENLABS_PERMANENTLY_DISABLED
+
+        from app.stt.dual_stt_client import _elevenlabs_permanently_disabled
+
+        if _ELEVENLABS_PERMANENTLY_DISABLED or _elevenlabs_permanently_disabled:
+            logger.debug("elevenlabs_stt.skipped_permanently_disabled")
+            self._permanently_disabled = True
+            self._connect_ready.set()
+            return
+
+        if self._permanently_disabled or self.__class__._process_permanently_disabled:
+            self._permanently_disabled = True
+            logger.info("elevenlabs_arabic_permanently_disabled", session_id=self._session_id)
+            self._connect_ready.set()
             return
 
         if self._connected or (self._thread and self._thread.is_alive()):
@@ -152,6 +178,14 @@ class ElevenLabsArabicClient:
 
         if not self._connect_ready.wait(timeout=_CONNECT_WAIT_SEC):
             logger.warning("elevenlabs_arabic_connect_timeout", timeout_sec=_CONNECT_WAIT_SEC)
+
+    def permanently_disable(self) -> None:
+        """Disable ElevenLabs Arabic reconnect attempts for this process."""
+        global _ELEVENLABS_PERMANENTLY_DISABLED
+        _ELEVENLABS_PERMANENTLY_DISABLED = True
+        self.__class__._process_permanently_disabled = True
+        self._permanently_disabled = True
+        self.disconnect()
 
     def disconnect(self) -> None:
         """Close the WebSocket and stop the background thread."""

@@ -1,0 +1,72 @@
+{
+  "scraped_at": "2025-01-01T00:00:00",
+  "base_url": "https://ecu.edu.eg/ar/",
+  "entry_count": 8,
+  "note": "بيانات أولية. شغّل scripts/scrape_ecu_arabic.py للتحديث.",
+  "entries": [
+    {
+      "title": "الجامعة المصرية الصينية",
+      "url": "https://ecu.edu.eg/ar/",
+      "content": "الجامعة المصرية الصينية ECU جامعة خاصة في القاهرة، وبتقدم برامج دراسية في كليات متعددة. الموقع الرسمي هو ecu.edu.eg وبوابة الطالب هي sis.ecu.edu.eg.",
+      "keywords": ["الجامعة المصرية الصينية", "ECU", "اي سي يو", "جامعة", "القاهرة"],
+      "category": "about",
+      "lang": "ar"
+    },
+    {
+      "title": "كلية الهندسة والتكنولوجيا",
+      "url": "https://ecu.edu.eg/ar/faculties/engineering-and-technology/",
+      "content": "كلية الهندسة والتكنولوجيا في ECU بتقدم برامج مرتبطة بالهندسة والتكنولوجيا، ومنها مجالات زي هندسة البرمجيات والنظم.",
+      "keywords": ["هندسة", "كلية الهندسة", "كلية الهندسة والتكنولوجيا", "هندسة البرمجيات", "تكنولوجيا"],
+      "category": "faculty",
+      "lang": "ar"
+    },
+    {
+      "title": "كلية الحاسبات ونظم المعلومات",
+      "url": "https://ecu.edu.eg/ar/faculties/computers-and-information-systems/",
+      "content": "كلية الحاسبات ونظم المعلومات بتغطي مجالات علوم الحاسب ونظم المعلومات والتخصصات المرتبطة بالحوسبة.",
+      "keywords": ["حاسبات", "كلية الحاسبات", "نظم المعلومات", "علوم الحاسب", "كمبيوتر"],
+      "category": "faculty",
+      "lang": "ar"
+    },
+    {
+      "title": "كلية الصيدلة وتكنولوجيا الدواء",
+      "url": "https://ecu.edu.eg/ar/faculties/pharmacy-drug-technology/",
+      "content": "كلية الصيدلة وتكنولوجيا الدواء بتقدم برامج في الصيدلة وعلوم الدواء.",
+      "keywords": ["صيدلة", "كلية الصيدلة", "تكنولوجيا الدواء", "علوم الدواء"],
+      "category": "faculty",
+      "lang": "ar"
+    },
+    {
+      "title": "كلية العلاج الطبيعي",
+      "url": "https://ecu.edu.eg/ar/faculties/physical-therapy/",
+      "content": "كلية العلاج الطبيعي بتقدم برامج مرتبطة بالعلاج الطبيعي وعلوم التأهيل.",
+      "keywords": ["علاج طبيعي", "كلية العلاج الطبيعي", "تأهيل"],
+      "category": "faculty",
+      "lang": "ar"
+    },
+    {
+      "title": "كلية الفنون والتصميم",
+      "url": "https://ecu.edu.eg/ar/faculties/arts-and-design/",
+      "content": "كلية الفنون والتصميم بتغطي مجالات الفنون والتصميم والجرافيك.",
+      "keywords": ["فنون", "تصميم", "كلية الفنون", "جرافيك"],
+      "category": "faculty",
+      "lang": "ar"
+    },
+    {
+      "title": "مكتبة الجامعة",
+      "url": "https://ecu.edu.eg/ar/",
+      "content": "لو محتاج معلومات دقيقة عن المكتبة ومواعيدها، اتأكد من الموقع الرسمي ecu.edu.eg أو اسأل شؤون الطلاب.",
+      "keywords": ["مكتبة", "المكتبة", "مكتبة الجامعة"],
+      "category": "library",
+      "lang": "ar"
+    },
+    {
+      "title": "التواصل مع الجامعة",
+      "url": "https://ecu.edu.eg/ar/contact-us/",
+      "content": "تقدر تتابع معلومات التواصل والخدمات من الموقع الرسمي ecu.edu.eg، وبوابة الطالب موجودة على sis.ecu.edu.eg.",
+      "keywords": ["تواصل", "اتصال", "موقع الجامعة", "بوابة الطالب", "شؤون الطلاب", "شئون الطلاب"],
+      "category": "contact",
+      "lang": "ar"
+    }
+  ]
+}

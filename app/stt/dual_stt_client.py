@@ -26,8 +26,10 @@ logger = get_logger(__name__)
 _ARABIC_PATTERN = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
 _WORD_PATTERN = re.compile(r"[A-Za-z0-9']+")
 _MIN_WIN_CONFIDENCE = 0.5
+_EL_FAIL_THRESHOLD = 2
 _DEDUP_WINDOW = 3
 _DEDUP_MAX_RATIO = 0.88
+_elevenlabs_permanently_disabled: bool = False
 _PHONETIC_ARABIC_WORDS: frozenset[str] = frozenset(
     {
         "wayn",
@@ -94,21 +96,29 @@ class DualSTTClient:
         self._en_language = "en"
         self._ar_language = "ar-EG"
         self._keyterms = keyterms or []
+        self._mock = mock
         self._session_id = session_id
+        self._el_consecutive_failures = 0
+        cfg = get_settings()
+        self._deepgram_fallback_to_multi = _elevenlabs_permanently_disabled and not _english_only_enabled(cfg)
+        deepgram_language = "multi" if self._deepgram_fallback_to_multi else self._en_language
 
         self._deepgram_client = DeepgramStreamingClient(
-            language=self._en_language,
+            language=deepgram_language,
             keyterms=self._keyterms,
             mock=mock,
             session_id=session_id,
         )
-        arabic_keyterms = load_arabic_keyterms_from_db() if keyterms is None else keyterms
-        self._arabic_client = ElevenLabsArabicClient(
-            language=self._ar_language,
-            keyterms=arabic_keyterms,
-            mock=mock,
-            session_id=session_id,
-        )
+        if _english_only_enabled(cfg):
+            self._arabic_client = _DisabledArabicSTTClient(session_id=session_id)
+        else:
+            arabic_keyterms = load_arabic_keyterms_from_db() if keyterms is None else keyterms
+            self._arabic_client = ElevenLabsArabicClient(
+                language=self._ar_language,
+                keyterms=arabic_keyterms,
+                mock=mock,
+                session_id=session_id,
+            )
         # Backward-compatible internal aliases used by existing tests.
         self._en_client = self._deepgram_client
         self._ar_client = self._arabic_client
@@ -122,6 +132,9 @@ class DualSTTClient:
         self._winner_language: str | None = None
         self._winner_forwarded = False
         self._recent_emissions: list[str] = []
+        self._connect_started = False
+        self._connect_logged_session_id: str | None = None
+        self._is_connected = False
 
         self._held_deepgram_event: Optional[TranscriptEvent] = None
         self._hold_deadline: Optional[float] = None
@@ -148,18 +161,50 @@ class DualSTTClient:
         self._bind_internal_callbacks()
 
     def connect(self) -> None:
+        cfg = get_settings()
+        with self._lock:
+            if self._is_connected:
+                logger.debug("dual_stt.already_connected_skipping", session_id=self._session_id)
+                return
+            self._is_connected = True
+
         self._clear_winner_state()
-        logger.info("dual_stt_started", english_language=self._en_language, arabic_language=self._ar_language)
+        self._connect_started = True
+        self._connect_logged_session_id = self._session_id
+        logger.info(
+            "dual_stt_started",
+            english_language="en"
+            if _english_only_enabled(cfg)
+            else getattr(self._deepgram_client, "_language", getattr(self._deepgram_client, "language", self._en_language)),
+            arabic_language=None if _english_only_enabled(cfg) else self._ar_language,
+            session_id=self._session_id,
+        )
         self._deepgram_client.connect()
+
+        if _english_only_enabled(cfg):
+            logger.info("dual_stt.arabic_leg_disabled_english_only_mode", session_id=self._session_id)
+            return
+        if _elevenlabs_permanently_disabled:
+            logger.info("dual_stt.arabic_leg_skipped_permanently_disabled", session_id=self._session_id)
+            return
+
         self._arabic_client.connect()
-        logger.info("dual_stt.arabic_connected_eagerly", session_id=self._session_id)
 
     def disconnect(self) -> None:
         self._clear_hold()
         self._deepgram_client.disconnect()
-        self._arabic_client.disconnect()
+        if not _english_only_enabled():
+            self._arabic_client.disconnect()
+        with self._lock:
+            self._is_connected = False
+            self._connect_started = False
+            self._connect_logged_session_id = None
 
     def send_audio(self, frame: bytes) -> None:
+        if _english_only_enabled():
+            self._deepgram_client.send_audio(frame)
+            return
+
         with self._lock:
             winner = self._winner_language
         if winner == self._en_language:
@@ -172,7 +217,8 @@ class DualSTTClient:
 
     def finalize_turn(self) -> None:
         self._deepgram_client.finalize_turn()
-        self._arabic_client.finalize_turn()
+        if not _english_only_enabled():
+            self._arabic_client.finalize_turn()
 
     def set_session_id(self, session_id: str | None) -> None:
         self._session_id = session_id
@@ -181,7 +227,8 @@ class DualSTTClient:
 
     def reset_turn(self) -> None:
         self._deepgram_client.reset_turn()
-        self._arabic_client.reset_turn()
+        if not _english_only_enabled():
+            self._arabic_client.reset_turn()
         self._recent_emissions.clear()
         self._clear_winner_state()
 
@@ -193,7 +240,11 @@ class DualSTTClient:
         language: str | None = "en",
         language_confidence: float | None = None,
     ) -> None:
-        target = self._arabic_client if (language or "").lower().startswith("ar") else self._deepgram_client
+        target = (
+            self._arabic_client
+            if (language or "").lower().startswith("ar") and not _english_only_enabled()
+            else self._deepgram_client
+        )
         target.inject_mock_transcript(
             text,
             is_final=is_final,
@@ -211,8 +262,8 @@ class DualSTTClient:
         self._arabic_client.set_callbacks(
             on_partial=self._handle_arabic_partial,
             on_final=self._on_arabic_final,
-            on_connected=self._handle_connected,
-            on_error=self._handle_error,
+            on_connected=self._handle_arabic_connected,
+            on_error=self._handle_arabic_error,
         )
 
     def _handle_deepgram_partial(self, event: TranscriptEvent) -> None:
@@ -306,7 +357,7 @@ class DualSTTClient:
 
         logger.info(
             "dual_stt_winner",
-            winning_language=language,
+            winning_language=event.language,
             confidence=event.confidence,
             text_preview=event.text[:80],
             session_id=self._session_id,
@@ -331,6 +382,8 @@ class DualSTTClient:
     def _disconnect_loser_async(self, loser_language: str | None) -> None:
         if not loser_language:
             return
+        if _english_only_enabled() and loser_language == self._ar_language:
+            return
         loser = self._arabic_client if loser_language == self._ar_language else self._deepgram_client
 
         def _disconnect() -> None:
@@ -341,16 +394,87 @@ class DualSTTClient:
 
     def _event_for_language(self, event: TranscriptEvent, language: str) -> TranscriptEvent:
         source = "elevenlabs" if language == self._ar_language else "deepgram"
-        lang_code = "ar-EG" if language == self._ar_language else "en"
+        if language == self._ar_language:
+            lang_code = "ar-EG"
+        elif self._deepgram_fallback_to_multi and (
+            (event.language or "").lower().startswith("ar") or _contains_arabic(event.text)
+        ):
+            lang_code = event.language if (event.language or "").lower().startswith("ar") else "ar-EG"
+        else:
+            lang_code = "en"
         return replace(event, language=lang_code, source=source, session_id=self._session_id)
 
     def _handle_connected(self) -> None:
         if self._on_connected:
             self._on_connected()
 
+    def _handle_arabic_connected(self) -> None:
+        self._el_consecutive_failures = 0
+        logger.info("dual_stt.arabic_connected_eagerly", session_id=self._session_id)
+        self._handle_connected()
+
     def _handle_error(self, reason: str, message: str) -> None:
         if self._on_error:
             self._on_error(reason, message)
+
+    def _handle_arabic_error(self, reason: str, message: str) -> None:
+        self._on_arabic_connect_error(reason, message)
+
+    def _on_arabic_connect_error(self, reason: str, message: str) -> None:
+        """React to ElevenLabs Arabic STT connection failures."""
+        global _elevenlabs_permanently_disabled
+
+        if "403" not in (message or ""):
+            self._handle_error(reason, message)
+            return
+
+        self._el_consecutive_failures += 1
+        logger.warning("dual_stt.elevenlabs_403", consecutive=self._el_consecutive_failures, session_id=self._session_id)
+        if self._el_consecutive_failures < _EL_FAIL_THRESHOLD:
+            return
+
+        if not _elevenlabs_permanently_disabled:
+            _elevenlabs_permanently_disabled = True
+            import app.stt.elevenlabs_arabic_client as _el_module
+
+            _el_module._ELEVENLABS_PERMANENTLY_DISABLED = True
+            logger.warning(
+                "dual_stt.elevenlabs_disabled_permanently",
+                detail="ElevenLabs STT unavailable. Deepgram multi used for all sessions.",
+            )
+            self._switch_to_deepgram_multi()
+
+    def _switch_to_deepgram_multi(self) -> None:
+        """Switch the active Deepgram leg to multi-language mode."""
+        if self._deepgram_fallback_to_multi:
+            return
+
+        if hasattr(self._arabic_client, "permanently_disable"):
+            self._arabic_client.permanently_disable()
+        else:
+            setattr(self._arabic_client, "_permanently_disabled", True)
+
+        logger.warning(
+            "dual_stt.falling_back_to_deepgram_multi",
+            detail="ElevenLabs STT unavailable, Deepgram switching to multi-language",
+            session_id=self._session_id,
+        )
+        self._deepgram_fallback_to_multi = True
+        self._deepgram_client.disconnect()
+        self._deepgram_client = DeepgramStreamingClient(
+            language="multi",
+            keyterms=self._keyterms,
+            mock=self._mock,
+            session_id=self._session_id,
+        )
+        self._en_client = self._deepgram_client
+        self._deepgram_client.set_callbacks(
+            on_partial=self._handle_deepgram_partial,
+            on_final=self._on_deepgram_final,
+            on_connected=self._handle_connected,
+            on_error=self._handle_error,
+        )
+        self._deepgram_client.connect()
 
     def _clear_winner_state(self) -> None:
         with self._lock:
@@ -376,6 +500,48 @@ class DualSTTClient:
 
 def _contains_arabic(text: str) -> bool:
     return bool(_ARABIC_PATTERN.search(text))
+
+
+class _DisabledArabicSTTClient:
+    """No-op Arabic STT leg used while English-only mode is active."""
+
+    def __init__(self, session_id: str | None = None) -> None:
+        self._session_id = session_id
+        self._connected = True
+
+    @property
+    def session_id(self) -> str | None:
+        return self._session_id
+
+    def set_callbacks(self, **_callbacks) -> None:
+        return
+
+    def connect(self) -> None:
+        self._connected = True
+
+    def disconnect(self) -> None:
+        self._connected = False
+
+    def send_audio(self, _frame: bytes) -> None:
+        return
+
+    def finalize_turn(self) -> None:
+        return
+
+    def set_session_id(self, session_id: str | None) -> None:
+        self._session_id = session_id
+
+    def reset_turn(self) -> None:
+        return
+
+    def inject_mock_transcript(self, *_args, **_kwargs) -> None:
+        return
+
+
+def _english_only_enabled(cfg: object | None = None) -> bool:
+    if cfg is None:
+        cfg = get_settings()
+    return bool(getattr(cfg, "english_only_mode", False))
 
 
 def _looks_like_phonetic_arabic(text: str) -> bool:

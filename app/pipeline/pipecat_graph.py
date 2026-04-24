@@ -34,6 +34,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from app.actions.navigation_bridge import NavigationBridge
 from app.audio.mic_input import MicCapture
 from app.audio.session_manager import SessionManager
+from app.config import get_settings
 from app.pipeline.controller import ConversationController
 from app.stt.deepgram_client import DeepgramStreamingClient
 from app.stt.dual_stt_client import DualSTTClient
@@ -127,6 +128,8 @@ class NavigatorRuntimeTracer:
 
         if name == "error_occurred":
             logger.error("runtime_trace", trace_event=name, session_id=session_id, **data)
+        elif name == "tts_empty_audio":
+            logger.warning("runtime_trace", trace_event=name, session_id=session_id, **data)
         elif name in _INFO_TRACE_EVENTS:
             logger.info("runtime_trace", trace_event=name, session_id=session_id, **data)
         else:
@@ -389,7 +392,7 @@ class TTSAdapter(FrameProcessor):
                 )
             if not audio:
                 self._tracer.record(
-                    "error_occurred",
+                    "tts_empty_audio",
                     session_id=packet.session_id,
                     source="tts",
                     message="synthesis_produced_no_audio",
@@ -493,7 +496,12 @@ class NavigatorPipecatRuntime:
 
         fallback_groq = _FallbackGroqClient()
 
-        self._session_manager = session_manager or SessionManager(on_timeout=self._on_session_timeout)
+        cfg = get_settings()
+        self._session_manager = session_manager or SessionManager(
+            session_timeout_sec=cfg.session_timeout_sec,
+            on_timeout=self._on_session_timeout,
+            on_reset=self._on_session_reset,
+        )
         self._mic = mic or MicCapture(mock=mock)
         self._wakeword = wakeword or WakeWordDetector(mock=mock)
         self._vad = vad or SileroVAD(mock=mock)
@@ -691,6 +699,7 @@ class NavigatorPipecatRuntime:
         self._vad._on_speech_frame = self._on_speech_frame  # type: ignore[attr-defined]
         self._playback_manager._on_complete = self._on_playback_complete  # type: ignore[attr-defined]
         self._session_manager._on_timeout = self._on_session_timeout  # type: ignore[attr-defined]
+        self._session_manager._on_reset = self._on_session_reset  # type: ignore[attr-defined]
 
     def _mic_loop(self) -> None:
         for frame in self._mic.frames():
@@ -725,6 +734,10 @@ class NavigatorPipecatRuntime:
         self._deepgram_adapter.connect()
 
     def _on_speech_start(self) -> None:
+        if self._playback_manager.is_echo_suppressed():
+            logger.debug("runtime.echo_suppressed_speech_start_ignored")
+            return
+
         session_id = self._session_manager.session_id or self._last_session_id
         if not session_id:
             return
@@ -767,22 +780,34 @@ class NavigatorPipecatRuntime:
         if session_id is None:
             session_id = self._session_manager.session_id or self._last_session_id
         self._session_manager.on_response_ready()
-        self._session_manager.activity_ping()
 
     def _on_empty_audio(self, session_id: Optional[str]) -> None:
         if session_id is None:
             session_id = self._session_manager.session_id or self._last_session_id
 
         self._tracer.record(
-            "error_occurred",
+            "tts_empty_audio",
             session_id=session_id,
             source="playback",
-            message="no_audio_available_for_playback",
+            message="tts_all_retries_exhausted",
         )
+        logger.warning("tts_empty_audio_ending_session", session_id=session_id)
         self._on_session_ended(reason="empty_audio", session_id=session_id)
 
     def _on_playback_complete(self) -> None:
         self._on_session_ended(reason="playback_complete", stop_playback=False)
+
+    def _on_session_reset(self) -> None:
+        """
+        Re-arm listening after the session manager auto-recovers from ERROR.
+        """
+        logger.info("runtime.session_reset_to_idle_after_error")
+        self._wakeword.set_session_active(False)
+        self._deepgram_adapter.disconnect()
+        self._deepgram_adapter.reset_turn()
+        self._deepgram_adapter.set_session_id(None)
+        self._vad.reset()
+        self._tracer.record("session_reset_complete")
 
     def _on_session_timeout(self, reason: str = "timeout") -> None:
         self._on_session_ended(reason=reason)

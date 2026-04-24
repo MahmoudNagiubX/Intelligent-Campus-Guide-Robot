@@ -19,9 +19,11 @@ from typing import Optional
 from app.config import get_settings
 from app.llm.groq_client import GroqClient
 from app.pipeline.arabic_normalizer import normalize_arabic_transcript, normalize_room_reference
+from app.pipeline.arabic_query_understander import understand_arabic
 from app.pipeline.language_detector import LangResult, detect_language, lang_is_arabic
 from app.pipeline.query_understander import understand
 from app.pipeline.response_composer import ResponseComposer
+from app.retrieval.arabic_hybrid_retriever import ArabicHybridResult, retrieve_arabic_hybrid
 from app.retrieval.hybrid_retriever import HybridResult, retrieve_hybrid
 from app.retrieval.search import normalize_query, search
 from app.routing.router import route
@@ -49,6 +51,8 @@ _CORRECTION_MIN_CONFIDENCE = 0.82
 _CORRECTION_MIN_GAIN = 0.18
 _WEAK_RETRIEVAL_THRESHOLD = 0.60
 _WEAK_MARGIN_THRESHOLD = 0.12
+_SHORT_TRANSCRIPT_WORD_LIMIT = 3
+_SHORT_TRANSCRIPT_CONFIDENCE = 0.85
 _LOCATION_REQUEST_PREFIXES = (
     "where is",
     "where's",
@@ -100,6 +104,23 @@ class ConversationController:
             logger.debug("controller.transcript_skipped_noise", text=repr(raw_text), session_id=session_id)
             return ResponsePacket(text="", language=cfg.default_language, session_id=session_id)
 
+        words = text.split()
+        word_count = len(words)
+        if word_count <= _SHORT_TRANSCRIPT_WORD_LIMIT and event.confidence < _SHORT_TRANSCRIPT_CONFIDENCE:
+            logger.info(
+                "controller.short_low_confidence_skipped",
+                text=text,
+                word_count=word_count,
+                confidence=event.confidence,
+                threshold=_SHORT_TRANSCRIPT_CONFIDENCE,
+                session_id=session_id,
+            )
+            return ResponsePacket(
+                text="Sorry, I didn't catch that clearly. Could you say that again?",
+                language="en",
+                session_id=session_id,
+            )
+
         detected_lang = detect_language(
             text=raw_text,
             deepgram_lang=event.language,
@@ -115,6 +136,15 @@ class ConversationController:
                     original_text=raw_text[:60],
                     session_id=session_id,
                 )
+        if cfg.english_only_mode and lang_is_arabic(detected_lang):
+            original_language = detected_lang.code
+            detected_lang = LangResult(code="en", source="english_only_mode_override", confidence=1.0)
+            logger.debug(
+                "controller.lang_forced_english_only_mode",
+                original=original_language,
+                effective=detected_lang.code,
+                session_id=session_id,
+            )
         language = detected_lang.code
         logger.info(
             "controller.lang_detected",
@@ -197,9 +227,11 @@ class ConversationController:
         logger.info(
             "controller_intent",
             intent=intent_result.intent.value,
-            target=intent_result.target_text,
             confidence=round(intent_result.confidence, 2),
             needs_clarification=intent_result.needs_clarification,
+            target=intent_result.target_text,
+            router_language=intent_result.language,
+            effective_language=language,
             session_id=session_id,
         )
         self._trace(
@@ -227,7 +259,7 @@ class ConversationController:
         if intent_result.intent == IntentClass.SOCIAL_CHAT:
             return self._handle_social_chat(raw_text, language, session_id)
         if language.startswith("ar"):
-            return self._composer.compose_unknown_answer(language=language, session_id=session_id)
+            return self._composer._compose_arabic_general_answer(raw_text, session_id=session_id)
         return self._composer.compose_general_campus_answer(raw_text, language=language, session_id=session_id)
 
     def _handle_campus_query(
@@ -247,33 +279,11 @@ class ConversationController:
             self._trace_hybrid_result("campus", session_id, hybrid)
             return self._compose_hybrid_campus_answer(hybrid, original_query, language, session_id)
 
-        query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
+        hybrid = self._resolve_arabic_hybrid_result(intent_result, query, session_id)
         _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
-        self._trace(
-            "retrieval_finished",
-            session_id,
-            path="campus",
-            status=retrieval.status.value,
-            entity=retrieval.canonical_name,
-        )
-
-        clarification_packet = self._maybe_build_quality_clarification(
-            intent_result=intent_result,
-            transcript_text=transcript_text,
-            retrieval=retrieval,
-            language=language,
-            session_id=session_id,
-        )
-        if clarification_packet is not None:
-            return clarification_packet
-
+        self._trace_arabic_hybrid_result("campus", session_id, hybrid)
         composer_started = time.monotonic()
-        packet = self._composer.compose_campus_answer(
-            retrieval=retrieval,
-            original_query=original_query,
-            language=language,
-            session_id=session_id,
-        )
+        packet = self._composer.compose_arabic_hybrid_answer(hybrid, transcript_text, session_id)
         _check_latency("composer", (time.monotonic() - composer_started) * 1000)
         return packet
 
@@ -294,36 +304,50 @@ class ConversationController:
             self._trace_hybrid_result("navigation", session_id, hybrid)
             return self._compose_hybrid_navigation_answer(hybrid, original_query, language, session_id)
 
-        query, retrieval = self._resolve_retrieval_query(query, stt_confidence, language, session_id)
+        hybrid = self._resolve_arabic_hybrid_result(intent_result, query, session_id)
         _check_latency("retrieval", (time.monotonic() - retrieval_started) * 1000)
-        self._trace(
-            "retrieval_finished",
-            session_id,
-            path="navigation",
-            status=retrieval.status.value,
-            entity=retrieval.canonical_name,
-            nav_code=retrieval.nav_code,
-        )
-
-        clarification_packet = self._maybe_build_quality_clarification(
-            intent_result=intent_result,
-            transcript_text=transcript_text,
-            retrieval=retrieval,
-            language=language,
-            session_id=session_id,
-        )
-        if clarification_packet is not None:
-            return clarification_packet
-
+        self._trace_arabic_hybrid_result("navigation", session_id, hybrid)
         composer_started = time.monotonic()
-        packet = self._composer.compose_navigation_answer(
-            retrieval=retrieval,
-            original_query=original_query,
-            language=language,
-            session_id=session_id,
-        )
+        if (
+            hybrid.answered_by == "db"
+            and hybrid.db_result is not None
+            and hybrid.db_result.status.value == "ok"
+            and hybrid.db_result.nav_code
+        ):
+            packet = self._composer.compose_navigation_answer(hybrid.db_result, transcript_text, "ar-EG", session_id)
+        else:
+            packet = self._composer.compose_arabic_hybrid_answer(hybrid, transcript_text, session_id)
         _check_latency("composer", (time.monotonic() - composer_started) * 1000)
         return packet
+
+    def _resolve_arabic_hybrid_result(
+        self,
+        intent_result: IntentResult,
+        query: str,
+        session_id: Optional[str],
+    ) -> ArabicHybridResult:
+        normalized_query = normalize_room_reference(normalize_arabic_transcript(query))
+        understood = understand_arabic(
+            raw_query=normalized_query,
+            router_entity=intent_result.target_text or "",
+            router_confidence=intent_result.confidence,
+            router_confidence_threshold=get_settings().router_confidence_threshold,
+        )
+        logger.info(
+            "controller.arabic_entity_understood",
+            raw=query[:60],
+            entity=understood.best_entity[:40],
+            query_type=understood.query_type,
+            session_id=session_id,
+        )
+        hybrid = retrieve_arabic_hybrid(understood, top_k=3)
+        logger.info(
+            "controller.arabic_hybrid_result",
+            answered_by=hybrid.answered_by,
+            latency_ms=round(hybrid.latency_ms),
+            session_id=session_id,
+        )
+        return hybrid
 
     def _resolve_hybrid_result(
         self,
@@ -389,6 +413,18 @@ class ConversationController:
         return packet
 
     def _trace_hybrid_result(self, path: str, session_id: Optional[str], hybrid: HybridResult) -> None:
+        db_result = hybrid.db_result
+        self._trace(
+            "retrieval_finished",
+            session_id,
+            path=path,
+            status=db_result.status.value if db_result else hybrid.answered_by,
+            entity=db_result.canonical_name if db_result else (hybrid.ecu_result.title if hybrid.ecu_result else None),
+            answered_by=hybrid.answered_by,
+            nav_code=db_result.nav_code if db_result else None,
+        )
+
+    def _trace_arabic_hybrid_result(self, path: str, session_id: Optional[str], hybrid: ArabicHybridResult) -> None:
         db_result = hybrid.db_result
         self._trace(
             "retrieval_finished",

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from app.pipeline.response_composer import ResponseComposer
+from app.pipeline.arabic_query_understander import understand_arabic
+from app.retrieval.arabic_hybrid_retriever import ArabicHybridResult
 from app.retrieval.ecu_knowledge import ECUKnowledgeResult
+from app.retrieval.ecu_knowledge_ar import ECUKnowledgeArResult
 from app.utils.contracts import RetrievalResult, RetrievalStatus, SpokenFacts
 
 
@@ -138,3 +141,30 @@ def test_compose_ecu_answer_uses_ecu_context() -> None:
 
     assert "Engineering" in packet.text
     assert "Engineering offers software engineering" in groq.text_calls[0]["kwargs"]["system_prompt"]
+
+
+def test_compose_arabic_hybrid_ecu_answer_uses_arabic_context() -> None:
+    groq = RecordingGroq("كلية الهندسة فيها برامج هندسية وتكنولوجية.")
+    composer = ResponseComposer(groq=groq)
+    hybrid = ArabicHybridResult(
+        answered_by="ecu_web",
+        understood=understand_arabic("الجامعة فيها كلية هندسة؟"),
+        ecu_result=ECUKnowledgeArResult(found=True, title="كلية الهندسة", content="برامج هندسية"),
+    )
+
+    packet = composer.compose_arabic_hybrid_answer(hybrid, "الجامعة فيها كلية هندسة؟", "sess")
+
+    assert packet.language == "ar-EG"
+    assert "الهندسة" in packet.text
+    assert "برامج هندسية" in groq.text_calls[0]["kwargs"]["system_prompt"]
+
+
+def test_arabic_general_answer_removes_robotic_preamble() -> None:
+    groq = RecordingGroq("بالتأكيد، مش متأكد بالظبط. جرب ecu.edu.eg.")
+    composer = ResponseComposer(groq=groq)
+
+    packet = composer._compose_arabic_general_answer("الجامعة اتأسست امتى؟")
+
+    assert packet.language == "ar-EG"
+    assert not packet.text.startswith("بالتأكيد")
+    assert "ecu.edu.eg" in packet.text

@@ -1,5 +1,5 @@
 building_id,floor_id,room_name,room_type,room_number
-A,1,Robotics Lab,Lab,C105
+C,1,Robotics Lab,Lab,C105
 C,1,Prototyping,Lab,C105
 C,1,Automatic Control,Lab,C105
 C,1,Machine Vision,Lab,C105

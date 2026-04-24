@@ -213,7 +213,7 @@ def test_sync_all_csvs_loads_bilingual_rows_and_preserves_canonical_staff_rule(
     assert len(office_hours_rows) == 2
 
 
-def test_sync_logs_ignored_csvs_without_failing(
+def test_sync_handles_new_csv_types_without_ignoring_them(
     bilingual_env: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -245,10 +245,11 @@ def test_sync_logs_ignored_csvs_without_failing(
     results = sync_all_csvs()
 
     assert "rooms_en" in results
+    assert "buildings_en" in results
+    assert "navigation_paths_ar" in results
+    assert "members_ar" in results
     assert all("error" not in payload for payload in results.values())
-    assert any("buildings_en.csv" in message for message in warnings)
-    assert any("navigation_paths_ar.csv" in message for message in warnings)
-    assert any("members_ar.csv" in message for message in warnings)
+    assert not any(message.startswith("sync_csv_ignored") for message in warnings)
 
 
 def test_sync_all_csvs_is_idempotent_for_canonical_staff_and_aliases(

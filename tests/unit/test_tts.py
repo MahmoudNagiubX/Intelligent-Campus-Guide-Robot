@@ -28,10 +28,10 @@ from app.tts.playback import PlaybackManager, PlaybackState
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestEdgeTTSClient:
-    def test_voice_for_english_returns_jenny(self):
+    def test_voice_for_english_returns_christopher(self):
         client = EdgeTTSClient(mock=True)
         voice = client.voice_for("en")
-        assert "Jenny" in voice or "en-US" in voice
+        assert voice == "en-US-ChristopherNeural"
 
     def test_voice_for_arabic_returns_salma(self):
         client = EdgeTTSClient(mock=True)
@@ -53,6 +53,21 @@ class TestEdgeTTSClient:
         client = EdgeTTSClient(mock=True)
         voice = client.voice_for("fr")
         assert "en" in voice.lower() or "Jenny" in voice
+
+    def test_voice_for_arabic_script_overrides_wrong_language(self):
+        client = EdgeTTSClient(mock=True)
+        voice = client.voice_for("en", text="أنا نافيجيتور")
+        assert voice == client.voice_for("ar-EG")
+
+    def test_rate_for_arabic_script_overrides_wrong_language(self, monkeypatch):
+        monkeypatch.setenv("EDGE_TTS_RATE", "-10%")
+        monkeypatch.setenv("EDGE_TTS_RATE_AR", "-3%")
+        get_settings.cache_clear()
+        try:
+            client = EdgeTTSClient(mock=True)
+            assert client.rate_for("en", text="أنا نافيجيتور") == "-3%"
+        finally:
+            get_settings.cache_clear()
 
     def test_mock_synthesize_returns_bytes(self):
         import asyncio
@@ -101,12 +116,14 @@ class TestEdgeTTSClient:
         monkeypatch.setenv("EDGE_TTS_VOICE_EN", "en-GB-SoniaNeural")
         monkeypatch.setenv("EDGE_TTS_VOICE_AR", "ar-SA-ZariyahNeural")
         monkeypatch.setenv("EDGE_TTS_RATE", "-15%")
+        monkeypatch.setenv("EDGE_TTS_RATE_AR", "-3%")
         get_settings.cache_clear()
         try:
             client = EdgeTTSClient(mock=True)
             assert client.voice_for("en") == "en-GB-SoniaNeural"
             assert client.voice_for("ar-EG") == "ar-SA-ZariyahNeural"
             assert client._rate == "-15%"
+            assert client.rate_for("ar-EG") == "-3%"
         finally:
             get_settings.cache_clear()
 
@@ -142,6 +159,150 @@ class TestEdgeTTSClient:
             assert captured["rate"] == "-12%"
         finally:
             get_settings.cache_clear()
+            sys.modules.pop("edge_tts", None)
+
+    def test_edge_tts_retries_empty_audio_with_backoff(self, monkeypatch):
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        class FlakyCommunicate:
+            attempts = 0
+
+            def __init__(self, *, text, voice, rate):
+                FlakyCommunicate.attempts += 1
+                self.attempt = FlakyCommunicate.attempts
+
+            async def stream(self):
+                if self.attempt < 3:
+                    if False:
+                        yield {"type": "audio", "data": b""}
+                    return
+                yield {"type": "audio", "data": b"recovered"}
+
+        monkeypatch.setattr("app.tts.edge_tts_client.asyncio.sleep", fake_sleep)
+        monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=FlakyCommunicate))
+        try:
+            client = EdgeTTSClient(mock=False)
+            result = asyncio.run(client.synthesize("The Robotics Lab is in Building C.", "en"))
+            assert result == b"recovered"
+            assert FlakyCommunicate.attempts == 3
+            assert sleeps == [0.4, 0.8]
+        finally:
+            sys.modules.pop("edge_tts", None)
+
+    def test_edge_tts_returns_fallback_after_all_retry_attempts_fail(self, monkeypatch):
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        class EmptyCommunicate:
+            attempts = 0
+
+            def __init__(self, *, text, voice, rate):
+                EmptyCommunicate.attempts += 1
+
+            async def stream(self):
+                if False:
+                    yield {"type": "audio", "data": b""}
+                return
+
+        monkeypatch.setattr("app.tts.edge_tts_client.asyncio.sleep", fake_sleep)
+        monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=EmptyCommunicate))
+        try:
+            client = EdgeTTSClient(mock=False)
+            result = asyncio.run(client.synthesize("This should eventually fail silently.", "en"))
+            assert result[:4] == b"RIFF"
+            assert len(result) > 44
+            assert EmptyCommunicate.attempts == 3
+            assert sleeps == [0.4, 0.8]
+        finally:
+            sys.modules.pop("edge_tts", None)
+
+    def test_arabic_edge_tts_rate_is_separate(self, monkeypatch):
+        captured = {}
+
+        class FakeCommunicate:
+            def __init__(self, *, text, voice, rate):
+                captured["text"] = text
+                captured["voice"] = voice
+                captured["rate"] = rate
+
+            async def stream(self):
+                yield {"type": "audio", "data": b"arabic"}
+
+        monkeypatch.setenv("EDGE_TTS_RATE", "-10%")
+        monkeypatch.setenv("EDGE_TTS_RATE_AR", "-3%")
+        monkeypatch.setenv("ELEVENLABS_TTS_ARABIC_ENABLED", "false")
+        get_settings.cache_clear()
+        monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=FakeCommunicate))
+        try:
+            client = EdgeTTSClient(mock=False)
+            result = asyncio.run(client.synthesize("أهلاً", "ar-EG"))
+            assert result == b"arabic"
+            assert captured["rate"] == "-3%"
+        finally:
+            get_settings.cache_clear()
+            sys.modules.pop("edge_tts", None)
+
+    def test_arabic_script_with_wrong_language_uses_arabic_voice_and_rate(self, monkeypatch):
+        captured = {}
+
+        class FakeCommunicate:
+            def __init__(self, *, text, voice, rate):
+                captured["text"] = text
+                captured["voice"] = voice
+                captured["rate"] = rate
+
+            async def stream(self):
+                yield {"type": "audio", "data": b"arabic"}
+
+        monkeypatch.setenv("EDGE_TTS_RATE", "-10%")
+        monkeypatch.setenv("EDGE_TTS_RATE_AR", "-3%")
+        monkeypatch.setenv("ELEVENLABS_TTS_ARABIC_ENABLED", "false")
+        get_settings.cache_clear()
+        monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=FakeCommunicate))
+        try:
+            client = EdgeTTSClient(mock=False)
+            result = asyncio.run(client.synthesize("أنا نافيجيتور", "en"))
+            assert result == b"arabic"
+            assert captured["voice"] == client.voice_for("ar-EG")
+            assert captured["rate"] == "-3%"
+        finally:
+            get_settings.cache_clear()
+            sys.modules.pop("edge_tts", None)
+
+    def test_arabic_text_with_english_language_switches_voice_mock(self):
+        client = EdgeTTSClient(mock=True)
+        result = asyncio.run(client.synthesize("أهلاً بالجامعة", language="en"))
+        assert isinstance(result, bytes)
+
+    def test_elevenlabs_arabic_tts_falls_back_to_edge(self, monkeypatch):
+        captured = {}
+
+        class FakeElevenLabs:
+            is_enabled = True
+
+            async def synthesize(self, text):
+                return b""
+
+        class FakeCommunicate:
+            def __init__(self, *, text, voice, rate):
+                captured["rate"] = rate
+
+            async def stream(self):
+                yield {"type": "audio", "data": b"edge"}
+
+        monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=FakeCommunicate))
+        try:
+            client = EdgeTTSClient(mock=False)
+            client._el_tts = FakeElevenLabs()
+            result = asyncio.run(client.synthesize("أهلاً", "ar-EG"))
+            assert result == b"edge"
+            assert captured["rate"] == client.rate_for("ar-EG")
+        finally:
             sys.modules.pop("edge_tts", None)
 
 

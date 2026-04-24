@@ -77,6 +77,59 @@ def test_final_transcript_flush_forwards_detected_language_metadata() -> None:
     assert finals[0].language_confidence == 0.97
 
 
+def test_multi_mode_uses_alternative_utterance_language() -> None:
+    finals = []
+    client = DeepgramStreamingClient(mock=True, language="multi", on_final=lambda event: finals.append(event))
+
+    client._handle_deepgram_message(
+        _results_message(
+            "فين معمل الروبوتات",
+            is_final=True,
+            speech_final=True,
+            language="ar-EG",
+            language_confidence=0.91,
+        )
+    )
+
+    assert finals[0].language == "ar-EG"
+
+
+def test_extract_detected_language_never_returns_multi() -> None:
+    client = DeepgramStreamingClient(mock=True, language="multi")
+    result = SimpleNamespace(
+        language="multi",
+        detected_language="multi",
+        channel=SimpleNamespace(detected_language="multi"),
+        metadata=SimpleNamespace(language="multi", detected_language="multi"),
+    )
+    alternative = SimpleNamespace(language="multi", detected_language="multi")
+
+    assert client._extract_detected_language(result, alternative) == "en"
+
+
+def test_extract_detected_language_reads_alternative_language() -> None:
+    client = DeepgramStreamingClient(mock=True, language="multi")
+    result = SimpleNamespace(
+        language="multi",
+        detected_language=None,
+        channel=SimpleNamespace(detected_language=None),
+        metadata=SimpleNamespace(language=None, detected_language=None),
+    )
+    alternative = SimpleNamespace(language="ar-EG", detected_language=None)
+
+    assert client._extract_detected_language(result, alternative) == "ar-EG"
+
+
+def test_flush_pending_segments_defaults_multi_to_en() -> None:
+    finals = []
+    client = DeepgramStreamingClient(mock=True, language="multi", on_final=lambda event: finals.append(event))
+
+    client._buffer_final_segment("Penmava del robot.", 0.43, detected_language=None, language_confidence=None)
+    client._flush_pending_segments(trigger="test")
+
+    assert finals[0].language == "en"
+
+
 def test_build_connect_options_locks_language_to_en_in_dual_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPGRAM_LANGUAGE", "multi")
     get_settings.cache_clear()
@@ -88,8 +141,8 @@ def test_build_connect_options_locks_language_to_en_in_dual_mode(monkeypatch: py
 
     assert options["language"] == "en"
     assert options["model"] == "nova-3"
-    assert options["endpointing"] == 300
-    assert options["utterance_end_ms"] == 1000
+    assert options["endpointing"] == 500
+    assert options["utterance_end_ms"] == 1500
     assert options["vad_events"] is True
     assert "no_delay" not in options
     assert "keyterm" not in options
