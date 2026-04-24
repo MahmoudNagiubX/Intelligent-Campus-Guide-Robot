@@ -1,0 +1,140 @@
+{
+  "database_metadata": {
+    "name": "ECU institutional knowledge",
+    "scope": "Verified institutional facts used for academic questions",
+    "robot_name": "ino",
+    "builder_team": "Innovtronics"
+  },
+  "university_core": {
+    "official_name": "Egyptian Chinese University",
+    "foundation_year": 2013,
+    "legal_foundation": "Presidential Decree No. 118 of 2013",
+    "university_model": "Private Egyptian university with Egyptian-Chinese academic cooperation",
+    "official_website": "ecu.edu.eg",
+    "student_portal": "sis.ecu.edu.eg",
+    "campuses": [
+      "Gesr El Suez",
+      "Nasr City"
+    ],
+    "macro_leadership": {
+      "university_president": "Prof. Dr. Rasha El-Kholy",
+      "university_vice_president": "Prof. Nabil Mostafa",
+      "board_of_trustees_head": "Prof. Amr Ibrahim"
+    },
+    "financial_architecture_2023_2024_egp": {
+      "payment_structure": "Paid in two installments: 60% first, then 40%",
+      "faculties": {
+        "engineering_and_technology": {
+          "total_annual": 56000
+        },
+        "computers_and_information_systems": {
+          "total_annual": 56000
+        },
+        "economics_and_international_trade": {
+          "total_annual": 44000
+        },
+        "pharmacy_and_drug_technology": {
+          "total_annual": 98000
+        },
+        "physical_therapy": {
+          "total_annual": 78000
+        },
+        "arts_and_design": {
+          "total_annual": 52000
+        },
+        "veterinary_medicine": {
+          "total_annual": 68000
+        },
+        "mass_communication": {
+          "total_annual": 44000
+        },
+        "law": {
+          "total_annual": 36000
+        }
+      }
+    },
+    "decanal_leadership_non_engineering": {
+      "pharmacy_and_drug_technology": {
+        "dean": "Prof. Mina Tadros"
+      },
+      "computers_and_information_systems": {
+        "dean": "Prof. Nabil Mostafa"
+      }
+    },
+    "admissions_framework": {
+      "international_requirements": {
+        "general_mandate": "Applicants should confirm current requirements through ecu.edu.eg or the admissions office."
+      }
+    }
+  },
+  "faculty_of_engineering_and_technology": {
+    "executive_leadership_big_heads": {
+      "dean_of_engineering_and_technology": {
+        "name": "Prof. Mohamed Talaat Moustafa",
+        "research_focus": "Engineering research and technology development",
+        "global_recognition": "Listed in Stanford's Top 2% Scientists"
+      }
+    },
+    "pedagogical_framework": {
+      "academic_system": "Credit hour system",
+      "total_credit_hours_required": "180 credit hours under the legacy plan or 145 credit hours under the new plan",
+      "minimum_graduation_gpa": "2.0 out of 4.0",
+      "credit_hour_definition": "A credit hour represents the academic workload assigned to a course."
+    },
+    "academic_departments": [
+      {
+        "department_name": "Software Engineering Department",
+        "acronym": "SET",
+        "pedagogical_focus": "Software systems, programming, databases, data science, artificial intelligence, and computing practice.",
+        "leadership": {
+          "head_of_department": "Department leadership is managed through the Faculty of Engineering and Technology."
+        }
+      },
+      {
+        "department_name": "Mechatronics Engineering Department",
+        "acronym": "MCT",
+        "pedagogical_focus": "Robotics, control, embedded systems, mechanical design, electronics, and automation.",
+        "leadership": {
+          "head_of_department": "Department leadership is managed through the Faculty of Engineering and Technology."
+        }
+      },
+      {
+        "department_name": "Civil Engineering Department",
+        "acronym": "CBE",
+        "pedagogical_focus": "Construction, building engineering, civil systems, materials, and infrastructure.",
+        "leadership": {
+          "head_of_department": "Department leadership is managed through the Faculty of Engineering and Technology."
+        }
+      },
+      {
+        "department_name": "Renewable Energy Engineering Department",
+        "acronym": "ERG",
+        "pedagogical_focus": "Renewable energy systems, power, sustainability, and applied energy technologies.",
+        "leadership": {
+          "head_of_department": "Department leadership is managed through the Faculty of Engineering and Technology."
+        }
+      }
+    ],
+    "laboratory_infrastructure": {
+      "software_labs": [
+        "Software Engineering Lab",
+        "Computing Lab",
+        "Networks Lab"
+      ],
+      "mechatronics_labs": [
+        "Robotics Lab",
+        "Electronics Lab",
+        "Control Lab"
+      ],
+      "civil_labs": [
+        "Materials Lab",
+        "Concrete Lab",
+        "Surveying Lab"
+      ],
+      "energy_labs": [
+        "Renewable Energy Lab",
+        "Power Lab"
+      ]
+    }
+  }
+}

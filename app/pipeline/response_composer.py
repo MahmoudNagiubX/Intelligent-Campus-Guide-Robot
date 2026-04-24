@@ -145,6 +145,14 @@ def _load_general_campus_prompt_en() -> str:
 
 
 @lru_cache(maxsize=1)
+def _load_academic_prompt_en() -> str:
+    path = Path("prompts/academic_answer_prompt_en.txt")
+    if not path.exists():
+        raise FileNotFoundError(f"Academic prompt missing: {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
+@lru_cache(maxsize=1)
 def _load_ecu_prompt_ar() -> str:
     path = Path("prompts/ecu_answer_prompt_ar.txt")
     if not path.exists():
@@ -186,7 +194,12 @@ class ResponseComposer:
             text = _FALLBACK_ERROR_AR if _is_arabic(language) else _FALLBACK_ERROR_EN
             return ResponsePacket(text=text, language=language, session_id=session_id)
 
-        facts_block = self._format_facts_block(retrieval, language)
+        if _is_arabic(language):
+            facts_block = self._format_facts_block(retrieval, language)
+        else:
+            from app.retrieval.context_builder import build_rich_context
+
+            facts_block = build_rich_context(retrieval) or self._format_facts_block(retrieval, language)
         prompt = self._render_prompt_template(_campus_prompt_for(language), facts_block, question=original_query)
         try:
             raw = self._groq.complete_text(
@@ -317,6 +330,36 @@ class ResponseComposer:
 
         if not spoken:
             spoken = ecu_result.content or "I found relevant ECU information, but I do not have a concise detail to say yet."
+        return ResponsePacket(text=spoken, language=language, session_id=session_id)
+
+    def compose_academic_answer(
+        self,
+        routing_text: str,
+        original_query: str,
+        language: str = "en",
+        session_id: Optional[str] = None,
+    ) -> ResponsePacket:
+        """Answer academic/institutional questions using ECU institutional knowledge."""
+        if _is_arabic(language):
+            return self.compose_unknown_answer(language=language, session_id=session_id)
+
+        from app.retrieval.ecu_institutional import build_institutional_context
+
+        context = build_institutional_context(routing_text or original_query)
+        prompt = _load_academic_prompt_en().replace("{context}", context)
+        try:
+            raw = self._groq.complete_text(
+                system_prompt=prompt,
+                user_message=original_query,
+                max_tokens=250,
+            )
+            spoken = self._clean_spoken(raw or "", language)
+        except Exception as exc:
+            logger.error("composer.academic_answer_error", error=str(exc))
+            spoken = ""
+
+        if not spoken:
+            spoken = "I don't have that exact detail. Check ecu.edu.eg or ask the registrar."
         return ResponsePacket(text=spoken, language=language, session_id=session_id)
 
     def compose_arabic_hybrid_answer(

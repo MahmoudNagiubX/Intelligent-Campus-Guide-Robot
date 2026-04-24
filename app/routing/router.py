@@ -76,6 +76,24 @@ _CAMPUS_TRIGGERS = [
     "إمتى",
     "ساعات العمل",
 ]
+_ACADEMIC_TRIGGERS = [
+    "gpa",
+    "credit hour",
+    "credit hours",
+    "fees",
+    "fee",
+    "tuition",
+    "admissions",
+    "admission",
+    "faculty",
+    "faculties",
+    "programs",
+    "courses",
+    "academic calendar",
+    "student portal",
+    "dean",
+    "president",
+]
 _SOCIAL_TRIGGERS = [
     "how are you",
     "what's up",
@@ -95,8 +113,15 @@ _SOCIAL_TRIGGERS = [
 
 _INTENT_MAP = {
     "campus_query": IntentClass.CAMPUS_QUERY,
+    "academic_query": IntentClass.ACADEMIC_QUERY,
+    "academicquery": IntentClass.ACADEMIC_QUERY,
+    "academic query": IntentClass.ACADEMIC_QUERY,
     "navigation_request": IntentClass.NAVIGATION_REQUEST,
     "social_chat": IntentClass.SOCIAL_CHAT,
+    "off_topic": IntentClass.OFF_TOPIC,
+    "offtopic": IntentClass.OFF_TOPIC,
+    "off topic": IntentClass.OFF_TOPIC,
+    "off-topic": IntentClass.OFF_TOPIC,
     "unknown": IntentClass.UNKNOWN,
     "campus query": IntentClass.CAMPUS_QUERY,
     "navigation request": IntentClass.NAVIGATION_REQUEST,
@@ -158,8 +183,10 @@ _INTENT_MAP = {
     "navigation request ": IntentClass.NAVIGATION_REQUEST,
     "social chat ": IntentClass.SOCIAL_CHAT,
     "Campus_Query": IntentClass.CAMPUS_QUERY,
+    "Academic_Query": IntentClass.ACADEMIC_QUERY,
     "Navigation_Request": IntentClass.NAVIGATION_REQUEST,
     "Social_Chat": IntentClass.SOCIAL_CHAT,
+    "Off_Topic": IntentClass.OFF_TOPIC,
     "Unknown": IntentClass.UNKNOWN,
 }
 
@@ -184,6 +211,9 @@ def _apply_pre_rules(text: str) -> IntentClass | None:
     for trigger in _CAMPUS_TRIGGERS:
         if trigger in lowered:
             return IntentClass.CAMPUS_QUERY
+    for trigger in _ACADEMIC_TRIGGERS:
+        if trigger in lowered:
+            return IntentClass.ACADEMIC_QUERY
     for trigger in _SOCIAL_TRIGGERS:
         if trigger in lowered:
             return IntentClass.SOCIAL_CHAT
@@ -197,10 +227,14 @@ def _parse_intent(value: object) -> IntentClass:
     normalized = raw.lower().replace("_", " ").strip()
     if normalized == "campus query":
         return IntentClass.CAMPUS_QUERY
+    if normalized == "academic query":
+        return IntentClass.ACADEMIC_QUERY
     if normalized == "navigation request":
         return IntentClass.NAVIGATION_REQUEST
     if normalized == "social chat":
         return IntentClass.SOCIAL_CHAT
+    if normalized in ("off topic", "offtopic"):
+        return IntentClass.OFF_TOPIC
     return IntentClass.UNKNOWN
 
 

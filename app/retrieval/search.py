@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import sqlite3
 import re
+import json
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from app.pipeline.arabic_normalizer import normalize_arabic_transcript, normalize_room_reference
@@ -22,6 +26,7 @@ logger = get_logger(__name__)
 
 EntityType = Literal["room", "lab", "department", "landmark", "staff", "building", "member", "any"]
 _CONFIDENCE_THRESHOLD = 0.60
+_FUZZY_THRESHOLD = 0.65
 
 
 @dataclass
@@ -40,12 +45,37 @@ def _lang_scope(lang: str | None) -> str:
     return "ar" if lang.startswith("ar") else "en"
 
 
+@lru_cache(maxsize=1)
+def _load_english_corrections() -> dict[str, str]:
+    path = Path("data/corrections_en.json")
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("retrieval_corrections_load_failed", error=str(exc))
+        return {}
+    return {str(key).lower(): str(value).lower() for key, value in data.items() if not str(key).startswith("_")}
+
+
+def _apply_english_corrections(text: str) -> str:
+    corrections = _load_english_corrections()
+    corrected = (text or "").lower()
+    for wrong in sorted(corrections, key=len, reverse=True):
+        if wrong in corrected:
+            corrected = corrected.replace(wrong, corrections[wrong])
+    return corrected
+
+
 def normalize_query(text: str, lang: str = "en") -> str:
     """
     Normalize a raw user query for retrieval matching.
     English text is lowercased for matching; Arabic text is preserved.
     """
-    value = normalize_room_reference(" ".join((text or "").strip().split()))
+    raw_text = text or ""
+    if _lang_scope(lang) == "en":
+        raw_text = _apply_english_corrections(raw_text)
+    value = normalize_room_reference(" ".join(raw_text.strip().split()))
     if _lang_scope(lang) == "ar":
         value = normalize_arabic_transcript(value)
     if not value:
@@ -297,14 +327,15 @@ def _search_labs(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate
     if results:
         return results
 
-    if lang == "en" and q.endswith(" lab"):
-        core = q.removesuffix(" lab").strip()
+    if lang == "en" and "lab" in q:
+        core = _strip_filler(q, lang).removesuffix(" lab").strip()
         if len(core) >= 4:
             for row in conn.execute(
                 "SELECT * FROM labs WHERE LOWER(lab_name) LIKE LOWER(?) AND lang=? AND is_active=1 LIMIT 5",
                 (f"%{core}%", lang),
             ).fetchall():
-                results.append(_Candidate("lab", row["id"], q.title(), 0.96, "lab_name_core"))
+                display_name = "Robotics Lab" if core == "robotics" else row["lab_name"]
+                results.append(_Candidate("lab", row["id"], display_name, 0.96, "lab_name_core"))
             if results:
                 return results
 
@@ -338,6 +369,20 @@ def _search_departments(conn: sqlite3.Connection, q: str, lang: str) -> list[_Ca
         results.append(_Candidate("department", row["id"], row["name"], 0.95, "department_exact"))
     if results:
         return results
+
+    core = _strip_filler(q, lang)
+    if lang == "en" and len(core) >= 4:
+        for row in conn.execute(
+            """
+            SELECT * FROM departments
+            WHERE LOWER(name) LIKE LOWER(?) AND lang=? AND is_active=1
+            LIMIT 5
+            """,
+            (f"%{core}%", lang),
+        ).fetchall():
+            results.append(_Candidate("department", row["id"], row["name"], 0.88, "department_name_core"))
+        if results:
+            return results
 
     try:
         for row in conn.execute(
@@ -512,6 +557,60 @@ def _rank_candidates(candidates: list[_Candidate]) -> list[_Candidate]:
         if key not in seen or candidate.confidence > seen[key].confidence:
             seen[key] = candidate
     return sorted(seen.values(), key=lambda item: item.confidence, reverse=True)
+
+
+def _similarity_against_name(q: str, name: str, lang: str) -> float:
+    q_lower = q.lower()
+    name_lower = name.lower()
+    variants = {name_lower, _strip_filler(name_lower, lang)}
+    variants.update(token for token in name_lower.split() if len(token) >= 4)
+    variants.update(" ".join(name_lower.split()[:idx]) for idx in range(1, len(name_lower.split()) + 1))
+    return max(SequenceMatcher(None, q_lower, variant).ratio() for variant in variants if variant)
+
+
+def _fuzzy_search_all_entities(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
+    """
+    Last-resort fuzzy search across entity names when exact, alias, and FTS miss.
+    Handles misspellings, phonetic errors, and accent-induced word variations.
+    """
+    results: list[_Candidate] = []
+    searches = [
+        ("rooms", "room_name", "room", lang),
+        ("rooms", "room_number", "room", lang),
+        ("labs", "lab_name", "lab", lang),
+        ("departments", "name", "department", lang),
+        ("landmarks", "landmark_name", "landmark", lang),
+        ("staff", "full_name", "staff", None),
+        ("buildings", "building_name", "building", lang),
+        ("members", "full_name", "member", None),
+    ]
+
+    for table, column, fuzzy_entity_type, search_lang in searches:
+        try:
+            sql = f"SELECT id, {column} AS name FROM {table} WHERE is_active=1"
+            params: list[str] = []
+            if search_lang:
+                sql += " AND lang=?"
+                params.append(search_lang)
+            for row in conn.execute(sql, params).fetchall():
+                name = str(row["name"] or "").strip()
+                if not name:
+                    continue
+                ratio = _similarity_against_name(q, name, lang)
+                if ratio >= _FUZZY_THRESHOLD:
+                    results.append(
+                        _Candidate(
+                            entity_type=fuzzy_entity_type,
+                            entity_id=row["id"],
+                            canonical_name=name,
+                            confidence=round(ratio * 0.85, 3),
+                            matched_via="fuzzy_match",
+                        )
+                    )
+        except Exception as exc:
+            logger.debug("fuzzy_search_table_error", table=table, error=str(exc))
+
+    return sorted(results, key=lambda candidate: candidate.confidence, reverse=True)[:5]
 
 
 def _hydrate_room(conn: sqlite3.Connection, entity_id: int) -> tuple[SpokenFacts, str | None, str | None]:
@@ -751,6 +850,16 @@ def _search_in_lang(
         candidates.extend(_search_members(conn, normalized, scoped_lang))
 
     ranked = _rank_candidates(candidates)
+    if not ranked or ranked[0].confidence < _CONFIDENCE_THRESHOLD:
+        fuzzy = _fuzzy_search_all_entities(conn, normalized, scoped_lang)
+        if fuzzy:
+            candidates.extend(fuzzy)
+            ranked = _rank_candidates(candidates)
+            logger.info(
+                "retrieval.fuzzy_match_found",
+                query=normalized,
+                top_match=ranked[0].canonical_name if ranked else None,
+            )
     candidate_names = [candidate.canonical_name for candidate in ranked[:top_k]]
     if not ranked:
         return RetrievalResult(

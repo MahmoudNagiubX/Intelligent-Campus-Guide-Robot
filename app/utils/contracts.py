@@ -44,8 +44,10 @@ class IntentClass(str, Enum):
     These are the only valid routing targets in the MVP.
     """
     CAMPUS_QUERY       = "campus_query"
+    ACADEMIC_QUERY     = "academic_query"
     NAVIGATION_REQUEST = "navigation_request"
     SOCIAL_CHAT        = "social_chat"
+    OFF_TOPIC          = "off_topic"
     UNKNOWN            = "unknown"
 
 

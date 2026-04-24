@@ -258,6 +258,17 @@ class ConversationController:
             return self._handle_navigation_request(intent_result, raw_text, language, session_id, stt_confidence)
         if intent_result.intent == IntentClass.SOCIAL_CHAT:
             return self._handle_social_chat(raw_text, language, session_id)
+        if intent_result.intent == IntentClass.OFF_TOPIC:
+            return ResponsePacket(
+                text=(
+                    "That's a bit outside my expertise! I'm ino, and I know ECU campus, "
+                    "courses, staff, buildings, and navigation."
+                ),
+                language="en",
+                session_id=session_id,
+            )
+        if intent_result.intent == IntentClass.ACADEMIC_QUERY:
+            return self._composer.compose_academic_answer(text, raw_text, "en", session_id)
         if language.startswith("ar"):
             return self._composer._compose_arabic_general_answer(raw_text, session_id=session_id)
         return self._composer.compose_general_campus_answer(raw_text, language=language, session_id=session_id)
@@ -485,7 +496,11 @@ class ConversationController:
         language: str,
         session_id: Optional[str],
     ) -> IntentResult:
-        if intent_result.intent not in (IntentClass.CAMPUS_QUERY, IntentClass.NAVIGATION_REQUEST):
+        if intent_result.intent not in (
+            IntentClass.CAMPUS_QUERY,
+            IntentClass.NAVIGATION_REQUEST,
+            IntentClass.ACADEMIC_QUERY,
+        ):
             return intent_result
         query = intent_result.target_text or intent_result.raw_query or ""
         corrected_query, corrected = self._maybe_apply_transcript_correction(query, stt_confidence, language, session_id)
@@ -681,9 +696,11 @@ def _load_en_corrections() -> dict[str, str]:
 
 def _apply_en_corrections(text: str) -> str:
     """Apply configured English transcript corrections before routing."""
+    corrections = _load_en_corrections()
     corrected = (text or "").lower()
-    for wrong, right in _load_en_corrections().items():
-        corrected = corrected.replace(wrong, right)
+    for wrong in sorted(corrections, key=len, reverse=True):
+        if wrong in corrected:
+            corrected = corrected.replace(wrong, corrections[wrong])
     return corrected
 
 

@@ -28,8 +28,8 @@ class Settings(BaseSettings):
         description='Deepgram language. Use "en" in dual STT mode; "multi" is only for standalone Deepgram.',
     )
     deepgram_keyterm_prompting_enabled: bool = Field(
-        default=False,
-        description="Opt in to sending Nova-3 keyterm hints to Deepgram.",
+        default=True,
+        description="Send Nova-3 keyterm hints to Deepgram for campus term accuracy.",
     )
     deepgram_endpointing_ms: int = Field(
         default=500,
