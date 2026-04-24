@@ -365,6 +365,32 @@ class TestPlaybackManager:
         pm.notify_speech_detected()
         assert pm.state == PlaybackState.STOPPED
 
+    def test_barge_in_ignored_during_initial_playback_guard(self):
+        barged = []
+        pm = PlaybackManager(mock=True, on_barge_in=lambda: barged.append(True))
+        pm._state = PlaybackState.PLAYING
+        pm._playback_start_time = time.monotonic()
+
+        pm.notify_speech_detected()
+
+        assert barged == []
+        assert pm.state == PlaybackState.PLAYING
+
+    def test_barge_in_guard_scales_with_expected_audio_duration(self):
+        barged = []
+        pm = PlaybackManager(mock=True, on_barge_in=lambda: barged.append(True))
+        pm._state = PlaybackState.PLAYING
+        pm._expected_duration_sec = 10.0
+        pm._playback_start_time = time.monotonic() - 4.0
+
+        assert pm.notify_speech_detected() is False
+        assert barged == []
+        assert pm.state == PlaybackState.PLAYING
+
+        pm._playback_start_time = time.monotonic() - 7.0
+        assert pm.notify_speech_detected() is True
+        assert barged == [True]
+
     def test_barge_in_ignored_when_idle(self):
         barged = []
         pm = PlaybackManager(mock=True, on_barge_in=lambda: barged.append(True))

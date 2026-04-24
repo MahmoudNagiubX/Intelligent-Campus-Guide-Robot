@@ -231,12 +231,15 @@ class ResponseComposer:
         if retrieval.status != RetrievalStatus.OK or not retrieval.nav_code:
             packet = self.compose_campus_answer(retrieval, original_query, language, session_id)
             if retrieval.status == RetrievalStatus.OK and retrieval.nav_code is None:
-                suffix = (
-                    " لسه معنديش مسار موثوق للمكان ده."
-                    if _is_arabic(language)
-                    else " I do not have a trusted navigation route for that location yet."
-                )
-                return ResponsePacket(text=packet.text + suffix, language=language, session_id=session_id)
+                if _is_arabic(language):
+                    suffix = " لسه معنديش مسار موثوق للمكان ده."
+                    if "آخدك" not in packet.text and "أوجهك" not in packet.text:
+                        return ResponsePacket(text=packet.text + suffix, language=language, session_id=session_id)
+                else:
+                    lowered = packet.text.lower()
+                    if "take you there" not in lowered and "guide you" not in lowered:
+                        suffix = " I don't have a trusted navigation route for that location yet."
+                        return ResponsePacket(text=packet.text + suffix, language=language, session_id=session_id)
             return packet
 
         name = retrieval.canonical_name or ("وجهتك" if _is_arabic(language) else "your destination")
@@ -437,7 +440,7 @@ class ResponseComposer:
             raw = self._groq.complete_text(
                 system_prompt=_load_general_campus_prompt_en(),
                 user_message=original_query,
-                max_tokens=180,
+                max_tokens=120,
             )
             spoken = self._clean_spoken(raw or "", language)
         except Exception as exc:
@@ -647,6 +650,8 @@ class ResponseComposer:
 def _clean_spoken_en(text: str) -> str:
     """Remove robotic preambles and cleanup English TTS text."""
     cleaned = text.strip()
+    if (cleaned.startswith('"') and cleaned.endswith('"')) or (cleaned.startswith("'") and cleaned.endswith("'")):
+        cleaned = cleaned[1:-1].strip()
     lowered = cleaned.lower()
     for preamble in _ROBOTIC_PREAMBLES_EN:
         if lowered.startswith(preamble):

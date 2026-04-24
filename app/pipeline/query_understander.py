@@ -38,6 +38,19 @@ _STRIP_SUFFIXES: list[str] = [
 _PREFIX_RE = re.compile(r"^\s*(?:" + "|".join(_STRIP_PREFIXES) + r")\s*", re.IGNORECASE)
 _SUFFIX_RE = re.compile(r"(" + "|".join(_STRIP_SUFFIXES) + r")", re.IGNORECASE)
 _ARTICLE_RE = re.compile(r"^(?:the|a|an)\s+", re.IGNORECASE)
+_TRAILING_LOCATION_WORDS = re.compile(
+    r"\s+(?:lab(?:oratory)?|office|room|department|dept|building|floor|"
+    r"lecture\s*hall|hall|theater|theatre|center|centre|space)\s*$",
+    re.IGNORECASE,
+)
+_PERSON_TITLE_ANYWHERE_RE = re.compile(
+    r"\b(?:dr\.?|doctor|prof\.?|professor|ta|teaching\s+assistant|eng\.?)\b",
+    re.IGNORECASE,
+)
+_PERSON_TITLE_PREFIX_RE = re.compile(
+    r"^(?:dr\.?\s+|doctor\s+|prof\.?\s+|professor\s+|eng\.?\s+|ta\s+|teaching\s+assistant\s+)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -76,7 +89,11 @@ def understand(
 
     stripped = _ARTICLE_RE.sub("", stripped).strip()
 
-    has_person_prefix = bool(re.match(r"^(?:dr|prof|professor|doctor)\.?\s+", stripped, re.IGNORECASE))
+    original_has_title = bool(_PERSON_TITLE_ANYWHERE_RE.search(cleaned))
+    if original_has_title and stripped:
+        stripped = _TRAILING_LOCATION_WORDS.sub("", stripped).strip()
+
+    has_person_prefix = bool(_PERSON_TITLE_PREFIX_RE.match(stripped))
     query_type = _classify_query_type(cleaned)
 
     router_entity = (router_entity or "").strip()

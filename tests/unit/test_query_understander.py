@@ -25,6 +25,12 @@ def test_person_prefix_detected() -> None:
     assert understood.has_person_prefix is True
 
 
+def test_person_prefix_strips_trailing_location_word() -> None:
+    understood = understand("where is the doctor Meyer lab")
+    assert understood.best_entity == "doctor Meyer"
+    assert understood.has_person_prefix is True
+
+
 def test_show_me_library() -> None:
     assert understand("can you show me the library").best_entity == "library"
 

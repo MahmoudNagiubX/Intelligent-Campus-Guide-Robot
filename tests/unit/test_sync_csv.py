@@ -201,10 +201,14 @@ def test_sync_all_csvs_loads_bilingual_rows_and_preserves_canonical_staff_rule(
     assert staff_rows[0]["lang"] == "en"
 
     alias_row = conn.execute(
-        "SELECT canonical_type, alias_text, lang FROM aliases WHERE canonical_type='staff'"
+        "SELECT canonical_type, alias_text, lang FROM aliases WHERE canonical_type='staff' AND lang='ar'"
     ).fetchone()
     assert alias_row["alias_text"] == "د. إسلام محمد"
     assert alias_row["lang"] == "ar"
+    generated_aliases = conn.execute(
+        "SELECT normalized_alias FROM aliases WHERE canonical_type='staff' AND lang='en'"
+    ).fetchall()
+    assert {row["normalized_alias"] for row in generated_aliases} >= {"islam", "mohamed", "islam mohamed"}
 
     office_hours_rows = conn.execute(
         "SELECT staff_full_name, weekday, start_time, end_time FROM office_hours ORDER BY start_time"
@@ -294,4 +298,4 @@ def test_sync_all_csvs_is_idempotent_for_canonical_staff_and_aliases(
     alias_count = conn.execute("SELECT COUNT(*) FROM aliases WHERE canonical_type='staff'").fetchone()[0]
 
     assert staff_count == 1
-    assert alias_count == 1
+    assert alias_count == 4

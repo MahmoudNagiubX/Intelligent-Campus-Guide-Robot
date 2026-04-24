@@ -853,6 +853,88 @@ def _sync_navigation_paths(
     return upserted, skipped, errored
 
 
+def _auto_generate_staff_aliases(
+    conn: sqlite3.Connection,
+    lang: str = "en",
+) -> int:
+    """
+    Generate searchable aliases for individual staff name tokens and common
+    two-token combinations so first-name/last-name queries do not depend on fuzzy search.
+    """
+    title_tokens = frozenset(
+        {
+            "dr",
+            "dr.",
+            "prof",
+            "prof.",
+            "professor",
+            "doctor",
+            "eng",
+            "eng.",
+            "mr",
+            "mrs",
+            "ms",
+            "assoc",
+            "assistant",
+        }
+    )
+    min_token_len = 3
+    staff_rows = conn.execute(
+        "SELECT id, full_name FROM staff WHERE lang=? AND is_active=1",
+        (lang,),
+    ).fetchall()
+
+    generated = 0
+    for row in staff_rows:
+        staff_id: int = row["id"]
+        full_name: str = row["full_name"] or ""
+        raw_tokens = full_name.lower().replace(".", " ").split()
+        name_tokens = [
+            token
+            for token in raw_tokens
+            if token not in title_tokens and len(token) >= min_token_len
+        ]
+        if not name_tokens:
+            continue
+
+        alias_candidates: list[str] = []
+        alias_candidates.extend(name_tokens)
+        for index in range(len(name_tokens) - 1):
+            alias_candidates.append(f"{name_tokens[index]} {name_tokens[index + 1]}")
+        if len(name_tokens) >= 3:
+            alias_candidates.append(f"{name_tokens[0]} {name_tokens[-1]}")
+
+        for alias_text in alias_candidates:
+            alias_norm = alias_text.strip().lower()
+            if not alias_norm:
+                continue
+            existing = conn.execute(
+                """
+                SELECT id FROM aliases
+                WHERE normalized_alias=? AND canonical_type='staff' AND canonical_id=? AND lang=?
+                """,
+                (alias_norm, staff_id, lang),
+            ).fetchone()
+            if existing:
+                continue
+            try:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO aliases
+                        (canonical_type, canonical_id, alias_text, normalized_alias, alias_text_norm, lang)
+                    VALUES ('staff', ?, ?, ?, ?, ?)
+                    """,
+                    (staff_id, alias_text.title(), alias_norm, alias_norm, lang),
+                )
+                generated += 1
+            except sqlite3.Error as exc:
+                logger.debug("staff_alias_auto_generate_error", staff_id=staff_id, alias=alias_text, error=str(exc))
+
+    conn.commit()
+    logger.info("staff_aliases_auto_generated", count=generated, staff_count=len(staff_rows), lang=lang)
+    return generated
+
+
 def _resolve_canonical_id(
     conn: sqlite3.Connection,
     target_type: str,
@@ -1126,6 +1208,11 @@ def sync_all_csvs() -> dict[str, dict]:
         combined.update(sync_directory(arabic_dir, "ar"))
     else:
         logger.warning("sync_ar_dir_missing", path=str(arabic_dir))
+
+    conn = get_db()
+    _auto_generate_staff_aliases(conn, lang="en")
+    _auto_generate_staff_aliases(conn, lang="ar")
+    logger.info("staff_alias_generation_complete")
 
     rebuild_fts()
     logger.info("sync_all_complete", sources=list(combined.keys()))

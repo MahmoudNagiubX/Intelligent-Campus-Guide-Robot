@@ -25,8 +25,13 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 EntityType = Literal["room", "lab", "department", "landmark", "staff", "building", "member", "any"]
-_CONFIDENCE_THRESHOLD = 0.60
+# Global threshold used for rooms, labs, departments, landmarks, buildings, and members.
+_CONFIDENCE_THRESHOLD = 0.62
+# Staff names are short and accent-sensitive, so allow a lower floor for staff-only fuzzy hits.
+_STAFF_CONFIDENCE_THRESHOLD = 0.50
 _FUZZY_THRESHOLD = 0.65
+_STAFF_FULL_FUZZY_THRESHOLD = 0.62
+_STAFF_TOKEN_FUZZY_THRESHOLD = 0.52
 
 
 @dataclass
@@ -62,9 +67,18 @@ def _apply_english_corrections(text: str) -> str:
     corrections = _load_english_corrections()
     corrected = (text or "").lower()
     for wrong in sorted(corrections, key=len, reverse=True):
-        if wrong in corrected:
-            corrected = corrected.replace(wrong, corrections[wrong])
+        if wrong not in corrected:
+            continue
+        pattern = _correction_pattern(wrong)
+        corrected = pattern.sub(corrections[wrong], corrected)
     return corrected
+
+
+def _correction_pattern(wrong: str) -> re.Pattern[str]:
+    escaped = re.escape(wrong.strip())
+    if not escaped:
+        return re.compile(r"$^")
+    return re.compile(rf"(?<!\w){escaped}(?!\w)", re.IGNORECASE)
 
 
 def normalize_query(text: str, lang: str = "en") -> str:
@@ -430,68 +444,158 @@ def _search_landmarks(conn: sqlite3.Connection, q: str, lang: str) -> list[_Cand
 
 _TITLE_PREFIXES = re.compile(
     r"^(?:dr\.?\s+|doctor\s+|prof\.?\s+|professor\s+|eng\.?\s+|ta\s+|"
-    r"assistant\s+professor\s+|assoc\.?\s+professor\s+|associate\s+professor\s+)",
+    r"assistant\s+professor\s+|assoc\.?\s+professor\s+|associate\s+professor\s+|"
+    r"teaching\s+assistant\s+)",
     re.IGNORECASE,
 )
 _STAFF_INTENT_PREFIXES = re.compile(
     r"^(?:office\s+hours(?:\s+for)?|availability(?:\s+(?:of|for))?|available\s+hours(?:\s+for)?)\s+",
     re.IGNORECASE,
 )
+_STAFF_TITLE_ONLY_QUERIES = {
+    "ta": ("ta", "teaching assistant"),
+    "tas": ("ta", "teaching assistant"),
+    "teaching assistant": ("ta", "teaching assistant"),
+    "teaching assistants": ("ta", "teaching assistant"),
+}
 
 
 def _search_staff(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
+    """
+    Search staff with five layers:
+    1. Exact full-name match.
+    2. Partial LIKE match.
+    3. FTS5 search.
+    4. Full-name fuzzy match.
+    5. Per-token fuzzy match for short/accent-sensitive names.
+    """
     results: list[_Candidate] = []
-    queries_to_try = [q]
-    intent_stripped = _STAFF_INTENT_PREFIXES.sub("", q).strip()
-    if intent_stripped and intent_stripped != q:
-        queries_to_try.append(intent_stripped)
+    q_intent = _STAFF_INTENT_PREFIXES.sub("", q or "").strip()
+    q_has_person_title = bool(
+        re.search(
+            r"\b(?:dr\.?|doctor|prof\.?|professor|eng\.?|ta|teaching\s+assistant)\b",
+            q_intent,
+            re.IGNORECASE,
+        )
+    )
+    q_stripped = _TITLE_PREFIXES.sub("", q_intent).strip().lower()
 
-    for value in list(queries_to_try):
-        stripped = _TITLE_PREFIXES.sub("", value).strip()
-        if stripped and stripped != value:
-            queries_to_try.append(stripped)
+    if not q_stripped:
+        return results
 
-    seen_attempts: set[str] = set()
-    for attempt in queries_to_try:
-        if not attempt or attempt in seen_attempts:
-            continue
-        seen_attempts.add(attempt)
-
-        exact_rows = conn.execute(
-            "SELECT * FROM staff WHERE LOWER(full_name)=LOWER(?) AND is_active=1",
-            (attempt,),
-        ).fetchall()
-        for row in exact_rows:
-            results.append(_Candidate("staff", row["id"], row["full_name"], 0.95, "staff_exact"))
+    title_lookup = _STAFF_TITLE_ONLY_QUERIES.get(q_stripped)
+    if title_lookup:
+        for row in conn.execute(
+            """
+            SELECT * FROM staff
+            WHERE (
+                LOWER(COALESCE(title, '')) IN (?, ?)
+                OR LOWER(COALESCE(title, '')) LIKE LOWER(?)
+            )
+              AND is_active=1
+            ORDER BY full_name
+            LIMIT 1
+            """,
+            (title_lookup[0], title_lookup[1], f"%{title_lookup[1]}%"),
+        ).fetchall():
+            results.append(_Candidate("staff", row["id"], row["full_name"], 0.84, "staff_title_like"))
         if results:
             return results
 
-        if len(attempt) >= 3:
-            partial_rows = conn.execute(
-                "SELECT * FROM staff WHERE LOWER(full_name) LIKE LOWER(?) AND is_active=1 LIMIT 5",
-                (f"%{attempt}%",),
-            ).fetchall()
-            for row in partial_rows:
-                results.append(_Candidate("staff", row["id"], row["full_name"], 0.82, "staff_partial"))
-            if results:
-                return results
+    for row in conn.execute(
+        "SELECT * FROM staff WHERE LOWER(full_name)=LOWER(?) AND is_active=1",
+        (q_stripped,),
+    ).fetchall():
+        results.append(_Candidate("staff", row["id"], row["full_name"], 0.99, "staff_exact"))
+    if results:
+        return results
 
-    if lang == "en":
-        stripped = _TITLE_PREFIXES.sub("", intent_stripped or q).strip()
-        try:
-            for row in conn.execute(
-                """
-                SELECT s.* FROM fts_staff f
-                JOIN staff s ON s.id = f.rowid
-                WHERE fts_staff MATCH ? AND s.is_active=1
-                LIMIT 5
-                """,
-                (_fts_query(stripped or q, lang),),
-            ).fetchall():
-                results.append(_Candidate("staff", row["id"], row["full_name"], 0.68, "fts_staff"))
-        except sqlite3.OperationalError as exc:
-            logger.warning("fts_staff_error", error=str(exc))
-    return results
+    for row in conn.execute(
+        "SELECT * FROM staff WHERE LOWER(full_name) LIKE LOWER(?) AND is_active=1 LIMIT 8",
+        (f"%{q_stripped}%",),
+    ).fetchall():
+        results.append(_Candidate("staff", row["id"], row["full_name"], 0.88, "staff_like"))
+    if results:
+        return results
+
+    fts_q = _fts_query(q_stripped, lang)
+    try:
+        for row in conn.execute(
+            """
+            SELECT s.* FROM fts_staff f
+            JOIN staff s ON s.id = f.rowid
+            WHERE fts_staff MATCH ? AND s.is_active=1
+            LIMIT 5
+            """,
+            (fts_q,),
+        ).fetchall():
+            results.append(_Candidate("staff", row["id"], row["full_name"], 0.72, "fts_staff"))
+    except sqlite3.OperationalError as exc:
+        logger.warning("fts_staff_error", error=str(exc))
+    if results:
+        return results
+
+    all_staff = conn.execute("SELECT id, full_name FROM staff WHERE is_active=1").fetchall()
+    for row in all_staff:
+        full = (row["full_name"] or "").lower()
+        ratio = SequenceMatcher(None, q_stripped, full).ratio()
+        if ratio >= _STAFF_FULL_FUZZY_THRESHOLD:
+            results.append(
+                _Candidate(
+                    "staff",
+                    row["id"],
+                    row["full_name"],
+                    round(ratio * 0.90, 3),
+                    "staff_full_fuzzy",
+                )
+            )
+    if results:
+        results.sort(key=lambda c: c.confidence, reverse=True)
+        return results[:3]
+
+    query_tokens = q_stripped.split()
+    if not query_tokens:
+        return results
+    core_tokens = [token for token in _strip_filler(q_stripped, lang).split() if len(token) >= 3]
+    if not q_has_person_title and re.search(
+        r"\b(?:lab|laboratory|room|office|department|building|floor)\b",
+        q_stripped,
+        re.IGNORECASE,
+    ):
+        return results
+    if len(core_tokens) > 2 and not q_has_person_title:
+        return results
+
+    for row in all_staff:
+        full = (row["full_name"] or "").lower()
+        name_tokens = full.replace(".", " ").split()
+        best_token_score = 0.0
+
+        for query_token in query_tokens:
+            if len(query_token) < 3:
+                continue
+            for name_token in name_tokens:
+                if len(name_token) < 3:
+                    continue
+                if query_token in name_token or name_token in query_token:
+                    best_token_score = max(best_token_score, 0.82)
+                    continue
+                ratio = SequenceMatcher(None, query_token, name_token).ratio()
+                best_token_score = max(best_token_score, ratio)
+
+        if best_token_score >= _STAFF_TOKEN_FUZZY_THRESHOLD:
+            results.append(
+                _Candidate(
+                    "staff",
+                    row["id"],
+                    row["full_name"],
+                    round(best_token_score * 0.78, 3),
+                    "staff_token_fuzzy",
+                )
+            )
+
+    results.sort(key=lambda c: c.confidence, reverse=True)
+    return results[:5]
 
 
 def _search_members(conn: sqlite3.Connection, q: str, lang: str) -> list[_Candidate]:
@@ -850,7 +954,7 @@ def _search_in_lang(
         candidates.extend(_search_members(conn, normalized, scoped_lang))
 
     ranked = _rank_candidates(candidates)
-    if not ranked or ranked[0].confidence < _CONFIDENCE_THRESHOLD:
+    if not ranked or ranked[0].confidence < _threshold_for_candidate(ranked[0]):
         fuzzy = _fuzzy_search_all_entities(conn, normalized, scoped_lang)
         if fuzzy:
             candidates.extend(fuzzy)
@@ -897,7 +1001,8 @@ def _search_in_lang(
             normalized_query=normalized,
         )
 
-    if top.confidence < _CONFIDENCE_THRESHOLD:
+    threshold = _threshold_for_candidate(top)
+    if top.confidence < threshold:
         return RetrievalResult(
             status=RetrievalStatus.NOT_FOUND,
             confidence=top.confidence,
@@ -924,6 +1029,10 @@ def _search_in_lang(
         normalized_query=normalized,
         nav_safety_notes=nav_safety_notes,
     )
+
+
+def _threshold_for_candidate(candidate: _Candidate) -> float:
+    return _STAFF_CONFIDENCE_THRESHOLD if candidate.entity_type == "staff" else _CONFIDENCE_THRESHOLD
 
 
 def search(

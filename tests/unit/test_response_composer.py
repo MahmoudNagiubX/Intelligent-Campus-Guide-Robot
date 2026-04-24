@@ -124,6 +124,37 @@ def test_clean_spoken_english_removes_robotic_preamble() -> None:
     assert packet.text == "The Robotics Lab is in Building C."
 
 
+def test_clean_spoken_english_strips_outer_quotes() -> None:
+    groq = RecordingGroq('"Doctor Mayar is a member of the Innovtronics team."')
+    composer = ResponseComposer(groq=groq)
+
+    packet = composer.compose_general_campus_answer("who is doctor mayar", language="en")
+
+    assert packet.text == "Doctor Mayar is a member of the Innovtronics team."
+
+
+def test_general_campus_answer_uses_short_token_budget() -> None:
+    groq = RecordingGroq("I don't have that specific detail.")
+    composer = ResponseComposer(groq=groq)
+
+    composer.compose_general_campus_answer("unknown campus question", language="en")
+
+    assert groq.text_calls[0]["kwargs"]["max_tokens"] == 120
+
+
+def test_navigation_no_route_suffix_does_not_double_speak_offer() -> None:
+    groq = RecordingGroq("I found the room. Want me to take you there?")
+    composer = ResponseComposer(groq=groq)
+
+    packet = composer.compose_navigation_answer(
+        retrieval=_retrieval_ok(nav_code=None),
+        original_query="take me there",
+        language="en",
+    )
+
+    assert "navigation route" not in packet.text
+
+
 def test_compose_ecu_answer_uses_ecu_context() -> None:
     groq = RecordingGroq("ECU's website says the Faculty of Engineering offers software engineering.")
     composer = ResponseComposer(groq=groq)

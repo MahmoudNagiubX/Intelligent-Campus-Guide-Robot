@@ -173,9 +173,14 @@ async def test_mocked_end_to_end_vad_is_muted_while_speaking(monkeypatch, tmp_pa
         await asyncio.sleep(0.15)
         runtime.vad.set_mock_speech(False)
 
+        runtime._on_speech_frame(b"\x02" * 1024)
+        runtime._on_speech_end()
+        await asyncio.sleep(0.05)
+
         events = [event.name for event in runtime.tracer.events()]
-        assert runtime.session_manager.state == SessionState.LISTENING
-        assert runtime.playback_manager.state == PlaybackState.STOPPED
-        assert "speaking_interrupted" in events
+        assert runtime.session_manager.state == SessionState.SPEAKING
+        assert runtime.playback_manager.state == PlaybackState.PLAYING
+        assert "speaking_interrupted" not in events
+        assert "speech_ended" not in events[events.index("speaking_started") + 1 :]
     finally:
         await runtime.shutdown()

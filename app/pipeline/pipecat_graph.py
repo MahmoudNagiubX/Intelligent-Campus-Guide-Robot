@@ -743,7 +743,8 @@ class NavigatorPipecatRuntime:
             return
 
         if self._session_manager.state == SessionState.SPEAKING:
-            self._playback_manager.notify_speech_detected()
+            if not self._playback_manager.notify_speech_detected():
+                return
             self._session_manager.on_barge_in()
             self._tracer.record("speaking_interrupted", session_id=session_id)
             self._deepgram_adapter.connect()
@@ -764,12 +765,20 @@ class NavigatorPipecatRuntime:
         if not session_id:
             return
 
+        if self._session_manager.state == SessionState.SPEAKING:
+            logger.debug("runtime.speech_frame_ignored_during_speaking")
+            return
+
         self._session_manager.activity_ping()
         self._queue_frame_threadsafe(InputAudioRawFrame(frame, self._mic.sample_rate, 1))
 
     def _on_speech_end(self) -> None:
         session_id = self._session_manager.session_id or self._last_session_id
         if not session_id:
+            return
+
+        if self._session_manager.state == SessionState.SPEAKING:
+            logger.debug("runtime.speech_end_ignored_during_speaking")
             return
 
         self._session_manager.on_speech_end()

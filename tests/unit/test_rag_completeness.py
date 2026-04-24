@@ -54,6 +54,24 @@ def test_major_english_rag_categories_are_retrievable(csv_seeded_db) -> None:
     assert member.entity_type == "member"
 
 
+def test_staff_name_misspellings_titles_and_aliases_are_retrievable(csv_seeded_db) -> None:
+    conn = csv_seeded_db
+
+    for query in ("meyer", "Dr. Meyer", "Where is the doctor Meyer lab?", "eslam", "TA", "teaching assistant"):
+        result = search(query, lang="en")
+        assert result.status == RetrievalStatus.OK
+        assert result.canonical_name
+
+    doctor = search("Where is the doctor Meyer lab?", lang="en")
+    assert doctor.entity_type == "staff"
+    assert doctor.spoken_facts is not None
+    assert doctor.spoken_facts.building is not None
+    assert doctor.spoken_facts.floor is not None
+
+    alias_count = conn.execute("SELECT COUNT(*) FROM aliases WHERE canonical_type='staff'").fetchone()[0]
+    assert alias_count >= 150
+
+
 def test_nav_code_exists_for_synced_room_and_lab_navigation_targets(csv_seeded_db) -> None:
     conn = csv_seeded_db
     rows = conn.execute(

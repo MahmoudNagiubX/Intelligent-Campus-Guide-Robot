@@ -40,6 +40,20 @@ The user may misspell campus terms due to accent or fast speech. Interpret gener
 
 Always extract the INTENDED entity, not the literal misspelled word.
 
+## Person name + location word combinations
+
+When the user says "doctor [name] lab" or "dr [name] office" or "professor [name] room":
+- target_type MUST be "staff" (not "lab", "room", or "office")
+- target_entity MUST be "Dr. [name]" or "Prof. [name]" as appropriate; do NOT append lab/room/office to the name
+- The word "lab" or "room" after a person's name is context, NOT part of the target
+
+Examples:
+  "where is doctor Meyer lab" -> target_type="staff", target_entity="Dr. Meyer"
+  "find professor Ahmed office" -> target_type="staff", target_entity="Prof. Ahmed"
+  "dr Islam room" -> target_type="staff", target_entity="Dr. Islam"
+  "ta Sara office" -> target_type="staff", target_entity="Sara"
+  "teaching assistant Hassan lab" -> target_type="staff", target_entity="Hassan"
+
 ## Output schema (return ONLY this JSON)
 
 {
@@ -64,6 +78,7 @@ Always extract the INTENDED entity, not the literal misspelled word.
 - Off_Topic -> needs_retrieval: false, needs_navigation: false
 - "Who made you?", "Who built you?", "Who created you?" -> Social_Chat
 - "Is Dr. X available?", "Is Dr. X in?", "Can I find Dr. X?" -> Campus_Query, target_type="staff", target_entity="Dr. X"
+- Any "doctor/dr/professor/prof/ta/teaching assistant [name] [lab/office/room]" phrase -> Campus_Query, target_type="staff", target_entity must contain only the person name/title
 - "Tell me about the Innovtronics team" / "Who is [member name]?" -> Campus_Query, target_type="member"
 - "What is room [code]?" -> Campus_Query, target_type="room"
 - "What is Building C?" -> Campus_Query, target_type="building"

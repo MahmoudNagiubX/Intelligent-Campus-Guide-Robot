@@ -38,6 +38,9 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+_BARGE_IN_MIN_SEC = 2.0
+_BARGE_IN_MIN_FRACTION = 0.60
+
 
 class PlaybackState(str, Enum):
     IDLE = "idle"
@@ -78,6 +81,8 @@ class PlaybackManager:
         self._resolved_output_device_name: Optional[str] = None
         self._echo_suppress_until: float = 0.0
         self._echo_suppress_ms: float = cfg.playback_echo_suppress_ms
+        self._playback_start_time: float = 0.0
+        self._expected_duration_sec: float = 3.0
 
         if not self._mock:
             self._log_output_device()
@@ -119,6 +124,8 @@ class PlaybackManager:
         self._stop_event.clear()
         with self._lock:
             self._state = PlaybackState.PLAYING
+            self._playback_start_time = time.monotonic()
+            self._expected_duration_sec = self._estimate_audio_duration_sec(audio_bytes)
 
         self._thread = threading.Thread(
             target=self._playback_loop,
@@ -155,7 +162,7 @@ class PlaybackManager:
         """Alias for stop() - explicit cancel intent."""
         self.stop()
 
-    def notify_speech_detected(self) -> None:
+    def notify_speech_detected(self) -> bool:
         """
         Call this from the VAD when speech is detected during playback.
         This is the barge-in trigger.
@@ -165,15 +172,28 @@ class PlaybackManager:
                 "playback.echo_suppressed_barge_in_ignored",
                 suppress_remaining_ms=round((self._echo_suppress_until - time.monotonic()) * 1000),
             )
-            return
+            return False
 
         if self.state == PlaybackState.PLAYING:
+            elapsed_sec = time.monotonic() - self._playback_start_time
+            expected_sec = max(self._expected_duration_sec, 0.1)
+            min_barge_in_sec = max(_BARGE_IN_MIN_SEC, expected_sec * _BARGE_IN_MIN_FRACTION)
+            if elapsed_sec < min_barge_in_sec:
+                logger.debug(
+                    "playback.barge_in_suppressed_early",
+                    elapsed_s=round(elapsed_sec, 1),
+                    min_s=round(min_barge_in_sec, 1),
+                    expected_s=round(expected_sec, 1),
+                )
+                return False
             logger.info("playback_barge_in_detected")
             self.stop()
             try:
                 self._on_barge_in()
             except Exception as exc:
                 logger.error("playback_barge_in_callback_error", error=str(exc))
+            return True
+        return False
 
     def play_test_tone(self, duration_ms: int = 300, frequency_hz: float = 440.0) -> None:
         """Play a tiny audible tone through the configured output device."""
@@ -181,6 +201,8 @@ class PlaybackManager:
 
     def _playback_loop(self, audio_bytes: bytes) -> None:
         """Run audio playback in the background thread."""
+        with self._lock:
+            self._playback_start_time = time.monotonic()
         if self._mock:
             self._mock_playback()
         else:
@@ -224,6 +246,8 @@ class PlaybackManager:
                 with self._lock:
                     self._state = PlaybackState.STOPPED
                 return
+            with self._lock:
+                self._expected_duration_sec = max(float(len(data)) / float(samplerate), 0.1)
 
             device_index, device_name = self._resolve_output_device(sd)
             channels = int(data.shape[1])
@@ -375,3 +399,17 @@ class PlaybackManager:
             wav_file.setframerate(sample_rate)
             wav_file.writeframes(pcm16.tobytes())
         return buf.getvalue()
+
+    @staticmethod
+    def _estimate_audio_duration_sec(audio_bytes: bytes) -> float:
+        """Best-effort duration estimate before the playback backend decodes audio."""
+        if not audio_bytes:
+            return 3.0
+        try:
+            with wave.open(io.BytesIO(audio_bytes), "rb") as wav_file:
+                framerate = wav_file.getframerate() or 1
+                return max(wav_file.getnframes() / float(framerate), 0.1)
+        except Exception:
+            # edge-tts usually returns compressed audio; this heuristic roughly tracks
+            # spoken length well enough to suppress robot self-echo near phrase endings.
+            return max(len(audio_bytes) / 10000.0, 3.0)

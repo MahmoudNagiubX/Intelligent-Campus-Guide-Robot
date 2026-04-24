@@ -16,7 +16,7 @@ from difflib import SequenceMatcher
 from typing import Callable, Optional
 
 from app.config import get_settings
-from app.stt.deepgram_client import DeepgramStreamingClient, load_arabic_keyterms_from_db
+from app.stt.deepgram_client import DeepgramStreamingClient, load_arabic_keyterms_from_db, load_keyterms_from_db
 from app.stt.elevenlabs_arabic_client import ElevenLabsArabicClient
 from app.utils.contracts import TranscriptEvent
 from app.utils.logging import get_logger
@@ -95,7 +95,7 @@ class DualSTTClient:
         del language
         self._en_language = "en"
         self._ar_language = "ar-EG"
-        self._keyterms = keyterms or []
+        self._keyterms = keyterms if keyterms is not None else load_keyterms_from_db()
         self._mock = mock
         self._session_id = session_id
         self._el_consecutive_failures = 0

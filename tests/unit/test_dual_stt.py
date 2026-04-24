@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.config.settings import get_settings
 from app.stt.dual_stt_client import DualSTTClient, _looks_like_phonetic_arabic
 from app.utils.contracts import TranscriptEvent
 
@@ -161,6 +162,36 @@ def wait_for(condition, timeout=1.0):
             return
         time.sleep(0.01)
     assert condition()
+
+
+def test_dual_stt_loads_cached_keyterms_for_deepgram(monkeypatch):
+    monkeypatch.setattr("app.stt.dual_stt_client._elevenlabs_permanently_disabled", False)
+    FakeDeepgramStreamingClient.instances = []
+    FakeElevenLabsArabicClient.instances = []
+    monkeypatch.setattr("app.stt.dual_stt_client.DeepgramStreamingClient", FakeDeepgramStreamingClient)
+    monkeypatch.setattr("app.stt.dual_stt_client.ElevenLabsArabicClient", FakeElevenLabsArabicClient)
+    monkeypatch.setattr("app.stt.dual_stt_client.load_keyterms_from_db", lambda: ["Robotics Lab", "C105"])
+    monkeypatch.setattr("app.stt.dual_stt_client.load_arabic_keyterms_from_db", lambda: ["معمل الروبوتات"])
+
+    DualSTTClient(mock=True, session_id="session-1")
+
+    en_client = next(c for c in FakeDeepgramStreamingClient.instances if c.language == "en")
+    assert en_client.keyterms == ["Robotics Lab", "C105"]
+
+
+def test_dual_stt_loaded_keyterms_are_active_in_deepgram_connect_options(monkeypatch):
+    monkeypatch.setenv("DEEPGRAM_KEYTERM_PROMPTING_ENABLED", "true")
+    monkeypatch.setattr("app.stt.dual_stt_client._elevenlabs_permanently_disabled", False)
+    monkeypatch.setattr("app.stt.dual_stt_client.load_keyterms_from_db", lambda: ["Robotics Lab", "C105"])
+    monkeypatch.setattr("app.stt.dual_stt_client.load_arabic_keyterms_from_db", lambda: ["معمل الروبوتات"])
+    get_settings.cache_clear()
+    try:
+        client = DualSTTClient(mock=True, session_id="session-1")
+        options = client._deepgram_client._build_connect_options()
+    finally:
+        get_settings.cache_clear()
+
+    assert options["keyterm"] == ["Robotics Lab", "C105"]
 
 
 def test_english_winner_selected_first(dual_client):

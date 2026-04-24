@@ -8,6 +8,7 @@ retrieval or social handling, and returns a ResponsePacket for TTS/actions.
 from __future__ import annotations
 
 import json
+import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from collections.abc import Callable
@@ -699,9 +700,18 @@ def _apply_en_corrections(text: str) -> str:
     corrections = _load_en_corrections()
     corrected = (text or "").lower()
     for wrong in sorted(corrections, key=len, reverse=True):
-        if wrong in corrected:
-            corrected = corrected.replace(wrong, corrections[wrong])
+        if wrong not in corrected:
+            continue
+        pattern = _correction_pattern(wrong)
+        corrected = pattern.sub(corrections[wrong], corrected)
     return corrected
+
+
+def _correction_pattern(wrong: str) -> re.Pattern[str]:
+    escaped = re.escape(wrong.strip())
+    if not escaped:
+        return re.compile(r"$^")
+    return re.compile(rf"(?<!\w){escaped}(?!\w)", re.IGNORECASE)
 
 
 def _is_noise_transcript(text: str) -> bool:
