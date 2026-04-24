@@ -47,7 +47,7 @@ python -m scripts.health_check
 python -m app.main
 ```
 
-Say: `Hey Jarvis, where is the robotics lab?`
+Say: `Hey ino, where is the robotics lab?`
 
 ## Arabic Mode
 
