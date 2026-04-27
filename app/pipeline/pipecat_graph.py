@@ -40,6 +40,7 @@ from app.stt.deepgram_client import DeepgramStreamingClient
 from app.stt.dual_stt_client import DualSTTClient
 from app.tts.edge_tts_client import EdgeTTSClient
 from app.tts.playback import PlaybackManager
+from app.ui.status_publisher import StatusPublisher
 from app.utils.contracts import ResponsePacket, SessionState, TranscriptEvent
 from app.utils.logging import get_logger
 from app.vad.silero_vad import SileroVAD
@@ -494,9 +495,16 @@ class NavigatorPipecatRuntime:
         self._tracer = NavigatorRuntimeTracer()
         self._observer = GraphTraceObserver()
 
+        cfg = get_settings()
+        self._status_publisher = StatusPublisher(
+            json_path=cfg.status_json_path,
+            ws_enabled=cfg.status_ws_enabled,
+            ws_host=cfg.status_ws_host,
+            ws_port=cfg.status_ws_port,
+        )
+
         fallback_groq = _FallbackGroqClient()
 
-        cfg = get_settings()
         self._session_manager = session_manager or SessionManager(
             session_timeout_sec=cfg.session_timeout_sec,
             on_timeout=self._on_session_timeout,
@@ -591,6 +599,16 @@ class NavigatorPipecatRuntime:
         await asyncio.wait_for(self._pipeline_started.wait(), timeout=5.0)
 
         self._running = True
+        self._status_publisher.start()
+        self._status_publisher.publish(
+            event="idle",
+            state="idle",
+            message="Waiting for wake word",
+            is_listening=False,
+            is_speaking=False,
+            wake_word_detected=False,
+        )
+
         if self._auto_start_audio:
             self._mic.start()
             self._mic_thread = threading.Thread(
@@ -644,6 +662,7 @@ class NavigatorPipecatRuntime:
                 await self._runner_task
 
         self._deepgram_adapter.disconnect()
+        self._status_publisher.stop()
         logger.info("navigator_runtime_stopped")
 
     async def wait_for_state(self, state: SessionState, timeout: float = 5.0) -> bool:
@@ -733,6 +752,20 @@ class NavigatorPipecatRuntime:
         self._tracer.record("session_started", session_id=session_id)
         self._deepgram_adapter.connect()
 
+        self._status_publisher.publish(
+            event="listening",
+            state="listening",
+            message="Listening...",
+            session_id=session_id,
+            is_listening=True,
+            is_speaking=False,
+            wake_word_detected=True,
+        )
+
+        # Play wake acknowledgment in the event loop (real mode only)
+        if self._loop and not self._mock:
+            asyncio.run_coroutine_threadsafe(self._play_wake_ack_async(), self._loop)
+
     def _on_speech_start(self) -> None:
         if self._playback_manager.is_echo_suppressed():
             logger.debug("runtime.echo_suppressed_speech_start_ignored")
@@ -759,6 +792,15 @@ class NavigatorPipecatRuntime:
         self._deepgram_adapter.reset_turn()
         self._queue_frame_threadsafe(UserStartedSpeakingFrame())
         self._tracer.record("speech_started", session_id=session_id)
+        self._status_publisher.publish(
+            event="listening",
+            state="listening",
+            message="Listening...",
+            session_id=session_id,
+            is_listening=True,
+            is_speaking=False,
+            wake_word_detected=True,
+        )
 
     def _on_speech_frame(self, frame: bytes) -> None:
         session_id = self._session_manager.session_id or self._last_session_id
@@ -784,11 +826,29 @@ class NavigatorPipecatRuntime:
         self._session_manager.on_speech_end()
         self._queue_frame_threadsafe(UserStoppedSpeakingFrame())
         self._tracer.record("speech_ended", session_id=session_id)
+        self._status_publisher.publish(
+            event="processing",
+            state="processing",
+            message="Processing...",
+            session_id=session_id,
+            is_listening=False,
+            is_speaking=False,
+            wake_word_detected=True,
+        )
 
     def _on_playback_started(self, session_id: Optional[str]) -> None:
         if session_id is None:
             session_id = self._session_manager.session_id or self._last_session_id
         self._session_manager.on_response_ready()
+        self._status_publisher.publish(
+            event="speaking",
+            state="speaking",
+            message="Speaking...",
+            session_id=session_id,
+            is_listening=False,
+            is_speaking=True,
+            wake_word_detected=True,
+        )
 
     def _on_empty_audio(self, session_id: Optional[str]) -> None:
         if session_id is None:
@@ -798,13 +858,39 @@ class NavigatorPipecatRuntime:
             "tts_empty_audio",
             session_id=session_id,
             source="playback",
-            message="tts_all_retries_exhausted",
+            message="empty_audio_keepalive",
         )
-        logger.warning("tts_empty_audio_ending_session", session_id=session_id)
-        self._on_session_ended(reason="empty_audio", session_id=session_id)
+        logger.warning("tts_empty_audio_returning_to_listening", session_id=session_id)
+        self._session_manager.on_empty_response()
+        self._deepgram_adapter.set_session_id(session_id)
+        self._deepgram_adapter.reset_turn()
+        self._status_publisher.publish(
+            event="listening",
+            state="listening",
+            message="Listening...",
+            session_id=session_id,
+            is_listening=True,
+            is_speaking=False,
+            wake_word_detected=True,
+        )
 
     def _on_playback_complete(self) -> None:
-        self._on_session_ended(reason="playback_complete", stop_playback=False)
+        """TTS finished naturally — keep the session alive and return to LISTENING."""
+        self._session_manager.on_playback_complete()
+        session_id = self._session_manager.session_id or self._last_session_id
+        # Prepare deepgram for the next utterance in this session
+        self._deepgram_adapter.set_session_id(session_id)
+        self._deepgram_adapter.reset_turn()
+        self._tracer.record("playback_complete_keepalive", session_id=session_id)
+        self._status_publisher.publish(
+            event="listening",
+            state="listening",
+            message="Listening...",
+            session_id=session_id,
+            is_listening=True,
+            is_speaking=False,
+            wake_word_detected=True,
+        )
 
     def _on_session_reset(self) -> None:
         """
@@ -846,6 +932,31 @@ class NavigatorPipecatRuntime:
                 self._last_session_id = ended_session_id
 
             self._tracer.record("session_ended", session_id=ended_session_id, reason=reason)
+            event_name = "session_timeout" if reason == "timeout" else "session_ended"
+            self._status_publisher.publish(
+                event=event_name,
+                state="idle",
+                message="Conversation ended due to inactivity" if reason == "timeout" else "Conversation ended",
+                session_id=ended_session_id,
+                is_listening=False,
+                is_speaking=False,
+                wake_word_detected=False,
+            )
+
+    async def _play_wake_ack_async(self) -> None:
+        """Synthesize and play the wake acknowledgment phrase (real mode only)."""
+        cfg = get_settings()
+        if not cfg.wake_ack_enabled:
+            return
+        try:
+            audio = await self._tts_client.synthesize(cfg.wake_ack_text_en, cfg.wake_ack_language)
+            if not audio:
+                return
+            session_id = self._session_manager.session_id or self._last_session_id
+            self._on_playback_started(session_id)
+            self._playback_manager.play(audio)
+        except Exception as exc:
+            logger.warning("wake_ack_failed", error=str(exc))
 
     def _queue_frame_threadsafe(
         self,

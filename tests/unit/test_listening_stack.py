@@ -352,14 +352,15 @@ class TestSessionManager:
         assert resets == [True]
         assert sm.state == SessionState.IDLE
 
-    def test_playback_complete_returns_to_idle(self):
+    def test_playback_complete_returns_to_listening_for_followup(self):
+        # New multi-turn behavior: after playback, session stays LISTENING
         sm = self._make_sm()
         sm.on_wake_detected()
         sm.on_speech_end()
         sm.on_response_ready()
         sm.on_playback_complete()
-        assert sm.state == SessionState.IDLE
-        assert sm.session_id is None
+        assert sm.state == SessionState.LISTENING
+        assert sm.session_id is not None  # session stays alive
 
     def test_end_session_returns_to_idle(self):
         sm = self._make_sm()
@@ -416,12 +417,14 @@ class TestSessionManager:
 
     def test_all_transitions_logged_without_crash(self):
         sm = self._make_sm()
+        # First turn: full path through speaking
         sm.on_wake_detected()
         sm.on_speech_end()
         sm.on_response_ready()
         sm.on_playback_complete()
-        assert sm.state == SessionState.IDLE
-        sm.on_wake_detected()
+        # After playback, session stays LISTENING (multi-turn keepalive)
+        assert sm.state == SessionState.LISTENING
+        # Second turn (no re-wake needed): follow-up question with barge-in
         sm.on_speech_end()
         sm.on_response_ready()
         sm.on_barge_in()

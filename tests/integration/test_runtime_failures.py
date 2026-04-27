@@ -55,8 +55,10 @@ async def test_groq_timeout_falls_back_to_grounded_facts(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tts_failure_records_warning_and_resets_session(monkeypatch, tmp_path):
-    configure_test_settings(monkeypatch, tmp_path)
+async def test_tts_failure_records_warning_and_keeps_session_alive(monkeypatch, tmp_path):
+    # Empty TTS audio no longer ends the session — the robot stays in LISTENING
+    # so the user can try again. The session eventually times out normally.
+    configure_test_settings(monkeypatch, tmp_path, session_timeout=1)
     bootstrap_and_sync()
 
     router_groq = make_router_mock(IntentClass.SOCIAL_CHAT, confidence=0.96)
@@ -72,12 +74,19 @@ async def test_tts_failure_records_warning_and_resets_session(monkeypatch, tmp_p
     await runtime.start()
     try:
         await simulate_user_turn(runtime, "hello there")
-        assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
+        # After empty audio, session stays LISTENING (keepalive)
+        await asyncio.sleep(0.3)
+        assert runtime.session_manager.state == SessionState.LISTENING
 
+        # Both tts_empty_audio events are still recorded
         events = runtime.tracer.events()
         assert any(event.name == "tts_empty_audio" and event.data["source"] == "tts" for event in events)
         assert any(event.name == "tts_empty_audio" and event.data["source"] == "playback" for event in events)
-        assert any(event.name == "session_ended" and event.data["reason"] == "empty_audio" for event in events)
+
+        # Session ends via inactivity timeout (not "empty_audio" reason)
+        assert await runtime.wait_for_state(SessionState.IDLE, timeout=3.0)
+        timeout_events = [e for e in runtime.tracer.events() if e.name == "session_ended"]
+        assert any(e.data.get("reason") == "timeout" for e in timeout_events)
     finally:
         await runtime.shutdown()
 

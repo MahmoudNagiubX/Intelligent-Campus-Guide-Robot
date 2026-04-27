@@ -133,7 +133,7 @@ class Settings(BaseSettings):
 
     # Session
     session_timeout_sec: int = Field(
-        default=25,
+        default=180,
         gt=0,
         description="Seconds of silence before session closes and returns to wake-word mode.",
     )
@@ -142,6 +142,26 @@ class Settings(BaseSettings):
         description="Pause the inactivity timer while the robot is speaking.",
     )
     max_session_turns: int = Field(default=10, gt=0, description="Maximum turns per active session")
+
+    # Status publisher
+    status_json_path: str = Field(
+        default="data/runtime_status.json",
+        description="Path for the runtime status JSON file written after each state change.",
+    )
+    status_ws_enabled: bool = Field(default=False, description="Enable WebSocket status broadcasting (opt-in)")
+    status_ws_host: str = Field(default="127.0.0.1", description="WebSocket server bind host")
+    status_ws_port: int = Field(default=8765, gt=0, description="WebSocket server port")
+
+    # Wake acknowledgment
+    wake_ack_enabled: bool = Field(
+        default=True,
+        description="Speak a short acknowledgment after the wake word is detected.",
+    )
+    wake_ack_text_en: str = Field(
+        default="Hello, I'm listening.",
+        description="English wake acknowledgment phrase.",
+    )
+    wake_ack_language: str = Field(default="en", description="Language code for the wake acknowledgment.")
 
     # Language detection
     default_language: str = Field(default="en", description="Fallback language code")

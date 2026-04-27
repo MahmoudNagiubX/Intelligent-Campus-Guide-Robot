@@ -20,8 +20,10 @@ Allowed transitions:
     LISTENING     -> SPEAKING      (fast-path response)
     LISTENING     -> IDLE          (timeout or explicit session end)
     PROCESSING    -> SPEAKING
+    PROCESSING    -> LISTENING     (empty/noise transcript — stay in session)
     PROCESSING    -> IDLE          (unknown / no response / explicit session end)
-    SPEAKING      -> IDLE          (playback complete or explicit session end)
+    SPEAKING      -> LISTENING     (playback complete — stay in session for follow-ups)
+    SPEAKING      -> IDLE          (explicit session end / timeout)
     SPEAKING      -> INTERRUPTED   (barge-in)
     INTERRUPTED   -> LISTENING     (resume after barge-in)
     INTERRUPTED   -> IDLE          (explicit session end)
@@ -48,8 +50,8 @@ _ALLOWED_TRANSITIONS: dict[SessionState, set[SessionState]] = {
     SessionState.IDLE: {SessionState.WAKE_DETECTED},
     SessionState.WAKE_DETECTED: {SessionState.LISTENING, SessionState.ERROR},
     SessionState.LISTENING: {SessionState.PROCESSING, SessionState.SPEAKING, SessionState.IDLE, SessionState.ERROR},
-    SessionState.PROCESSING: {SessionState.SPEAKING, SessionState.IDLE, SessionState.ERROR},
-    SessionState.SPEAKING: {SessionState.IDLE, SessionState.INTERRUPTED, SessionState.ERROR},
+    SessionState.PROCESSING: {SessionState.SPEAKING, SessionState.LISTENING, SessionState.IDLE, SessionState.ERROR},
+    SessionState.SPEAKING: {SessionState.IDLE, SessionState.INTERRUPTED, SessionState.LISTENING, SessionState.ERROR},
     SessionState.INTERRUPTED: {SessionState.LISTENING, SessionState.IDLE, SessionState.ERROR},
     SessionState.ERROR: {SessionState.IDLE},
 }
@@ -189,8 +191,18 @@ class SessionManager:
             logger.debug("session_timeout_paused_during_speaking", session_id=self._session_id)
 
     def on_playback_complete(self) -> None:
-        """Called when TTS finishes speaking and the session should close."""
-        self.end_session(reason="playback_complete")
+        """Called when TTS finishes speaking. Returns to LISTENING for follow-up questions."""
+        ok = self.transition(SessionState.LISTENING)
+        if ok:
+            self.start_timeout_timer()
+            logger.debug("session_keepalive_after_playback", session_id=self._session_id)
+
+    def on_empty_response(self) -> None:
+        """Called when TTS produces no audio (empty/noise transcript). Stays in session."""
+        ok = self.transition(SessionState.LISTENING)
+        if ok:
+            self.start_timeout_timer()
+            logger.debug("session_keepalive_after_empty_response", session_id=self._session_id)
 
     def on_barge_in(self) -> None:
         """Called when user speaks during TTS playback."""
