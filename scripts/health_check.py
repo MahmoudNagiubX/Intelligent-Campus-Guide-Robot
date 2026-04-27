@@ -23,12 +23,19 @@ def emit(message: str = "") -> None:
     sys.stdout.write(message + "\n")
 
 
+_INSTALL_HINT = "  →  Run: python -m pip install -r requirements.txt"
+
+
 def check(name: str, fn) -> bool:
     try:
         result = bool(fn())
         status = "[PASS]" if result else "[FAIL]"
         emit(f"  {status}  {name}")
         return result
+    except ModuleNotFoundError as exc:
+        emit(f"  [FAIL]  {name} -- {exc}")
+        emit(_INSTALL_HINT)
+        return False
     except Exception as exc:
         emit(f"  [FAIL]  {name} -- {exc}")
         return False
@@ -167,6 +174,11 @@ def run_health_checks() -> bool:
 
         return True
 
+    def check_paho_mqtt() -> bool:
+        import paho.mqtt.client  # noqa: F401
+
+        return True
+
     results.append(check("Config loads with required API keys for selected language mode", check_config))
     results.append(check("SQLite database opens and schema exists", check_sqlite))
     results.append(check("English CSV directory exists and contains CSV files", check_csv_english_dir))
@@ -181,6 +193,7 @@ def run_health_checks() -> bool:
     results.append(check("Speaker/output device accessible", check_speaker_accessible))
     results.append(check("PyAudio installed (mic capture)", check_pyaudio))
     results.append(check("edge-tts installed (TTS output)", check_edge_tts))
+    results.append(check("paho-mqtt installed (MQTT state publisher)", check_paho_mqtt))
 
     passed = sum(1 for item in results if item)
     failed = sum(1 for item in results if not item)

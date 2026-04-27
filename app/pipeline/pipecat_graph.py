@@ -495,6 +495,8 @@ class NavigatorPipecatRuntime:
         # Guard: track which session_id already received the wake acknowledgment.
         # Each new session has a fresh UUID, so the comparison naturally prevents
         # replaying the ack within the same session or during keepalive transitions.
+        # The state machine (_on_wake_word_detected returns if state != IDLE) prevents
+        # re-entry within the same session, so no in-progress flag is needed.
         self._wake_ack_session_id: Optional[str] = None
 
         self._tracer = NavigatorRuntimeTracer()
@@ -791,11 +793,21 @@ class NavigatorPipecatRuntime:
         self._mqtt.publish_state("listening")
 
         # Play wake acknowledgment once per unique session (real mode only).
-        # Comparing session_id (a new UUID per wake) ensures the ack never
-        # replays when returning from SPEAKING→LISTENING inside the same session.
-        if self._loop and not self._mock and session_id != self._wake_ack_session_id:
+        # Guard conditions:
+        #   - session_id must be non-None (race: session might not be set yet)
+        #   - session_id must differ from the last acked session
+        #   - no ack synthesis must currently be in flight
+        # _wake_ack_session_id is set BEFORE scheduling to block any concurrent trigger.
+        if (
+            self._loop
+            and not self._mock
+            and session_id
+            and session_id != self._wake_ack_session_id
+        ):
             self._wake_ack_session_id = session_id
-            asyncio.run_coroutine_threadsafe(self._play_wake_ack_async(), self._loop)
+            asyncio.run_coroutine_threadsafe(
+                self._play_wake_ack_async(session_id), self._loop
+            )
 
     def _on_speech_start(self) -> None:
         if self._playback_manager.is_echo_suppressed():
@@ -814,6 +826,7 @@ class NavigatorPipecatRuntime:
             self._deepgram_adapter.connect()
             self._deepgram_adapter.reset_turn()
             self._queue_frame_threadsafe(InterruptionFrame())
+            self._mqtt.publish_state("listening")
             return
 
         self._session_manager.on_speech_start()
@@ -954,6 +967,12 @@ class NavigatorPipecatRuntime:
             if active_session_id is None and self._session_manager.state == SessionState.IDLE:
                 return
 
+            logger.info(
+                "runtime.session_ending",
+                reason=reason,
+                session_id=active_session_id,
+                state=self._session_manager.state.value,
+            )
             if stop_playback:
                 self._playback_manager.stop()
             self._wakeword.set_session_active(False)
@@ -979,20 +998,60 @@ class NavigatorPipecatRuntime:
             )
             self._mqtt.publish_state("idle")
 
-    async def _play_wake_ack_async(self) -> None:
-        """Synthesize and play the wake acknowledgment phrase (real mode only)."""
+    async def _play_wake_ack_async(self, scheduled_for: str) -> None:
+        """Synthesize and play the wake acknowledgment phrase (real mode only).
+
+        Args:
+            scheduled_for: The session UUID that triggered this ack.  If the
+                session has changed by the time synthesis completes (because the
+                session ended or a new wake arrived), the ack is discarded so
+                only one greeting plays per session.
+        """
         cfg = get_settings()
         if not cfg.wake_ack_enabled:
+            self._wake_ack_in_progress = False
             return
+
+        started_playback = False
         try:
             audio = await self._tts_client.synthesize(cfg.wake_ack_text_en, cfg.wake_ack_language)
             if not audio:
                 return
-            session_id = self._session_manager.session_id or self._last_session_id
-            self._on_playback_started(session_id)
+
+            # Synthesis is async — by the time it returns the session may have
+            # changed.  Only play if this coroutine was scheduled for the session
+            # that is still active AND the session is in a state where playing
+            # a greeting makes sense (LISTENING or WAKE_DETECTED).
+            current_session_id = self._session_manager.session_id
+            if current_session_id != scheduled_for:
+                logger.debug(
+                    "wake_ack_aborted_session_changed",
+                    scheduled_for=scheduled_for,
+                    current=current_session_id,
+                )
+                return
+
+            current_state = self._session_manager.state
+            if current_state not in (SessionState.LISTENING, SessionState.WAKE_DETECTED):
+                logger.debug(
+                    "wake_ack_skipped_wrong_state",
+                    state=current_state.value,
+                    session_id=scheduled_for,
+                )
+                return
+
+            self._on_playback_started(scheduled_for)
+            started_playback = True
             self._playback_manager.play(audio)
+
         except Exception as exc:
             logger.warning("wake_ack_failed", error=str(exc))
+            if started_playback:
+                # _on_playback_started transitioned the session to SPEAKING and
+                # cancelled the inactivity timer.  play() failed before any audio
+                # was queued so _on_playback_complete will never fire.  Recover
+                # by returning the session to LISTENING with a fresh timer.
+                self._session_manager.on_empty_response()
 
     def _queue_frame_threadsafe(
         self,

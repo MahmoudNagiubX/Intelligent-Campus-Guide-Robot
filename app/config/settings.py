@@ -158,7 +158,7 @@ class Settings(BaseSettings):
         description="Speak a short acknowledgment after the wake word is detected.",
     )
     wake_ack_text_en: str = Field(
-        default="Hello, I'm listening.",
+        default="Hello, Welcome to the Made in ECU event! I'm your guide here at the Faculty of Engineering, ECU. How can I help you?",
         description="English wake acknowledgment phrase.",
     )
     wake_ack_language: str = Field(default="en", description="Language code for the wake acknowledgment.")
