@@ -1,10 +1,10 @@
 {
-  "event": "session_timeout",
-  "state": "idle",
-  "message": "Conversation ended due to inactivity",
-  "is_listening": false,
+  "event": "listening",
+  "state": "listening",
+  "message": "Listening...",
+  "is_listening": true,
   "is_speaking": false,
-  "wake_word_detected": false,
-  "session_id": "6fa19341-5d4f-47f6-b786-cbb84e25d41e",
-  "timestamp": "2026-04-27T18:18:53"
+  "wake_word_detected": true,
+  "session_id": "cc76c681-14e5-465b-9ab5-0fecfcb80f45",
+  "timestamp": "2026-04-27T18:47:19"
 }

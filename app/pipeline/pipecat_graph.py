@@ -547,7 +547,15 @@ class NavigatorPipecatRuntime:
             enable_metrics=True,
             start_metadata={"component": "navigator_runtime"},
         )
-        self._task = PipelineTask(pipeline, params=params, observers=[self._observer])
+        # Disable Pipecat's internal idle-timeout. Our SessionManager owns the
+        # 180-second conversation timeout; Pipecat must never cancel the pipeline.
+        self._task = PipelineTask(
+            pipeline,
+            params=params,
+            observers=[self._observer],
+            idle_timeout_secs=None,
+            cancel_on_idle_timeout=False,
+        )
 
         @self._task.event_handler("on_pipeline_started")
         async def _on_pipeline_started(*_args, **_kwargs):
