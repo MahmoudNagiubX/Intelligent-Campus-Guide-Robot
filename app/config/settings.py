@@ -163,6 +163,17 @@ class Settings(BaseSettings):
     )
     wake_ack_language: str = Field(default="en", description="Language code for the wake acknowledgment.")
 
+    # MQTT state publisher (wait / listen / speak)
+    mqtt_enabled: bool = Field(default=False, description="Enable MQTT state publishing")
+    mqtt_broker: str = Field(default="", description="MQTT broker hostname (e.g. HiveMQ Cloud FQDN)")
+    mqtt_port: int = Field(default=8883, gt=0, description="MQTT broker port (8883 for TLS)")
+    mqtt_username: str = Field(default="", description="MQTT username")
+    mqtt_password: str = Field(default="", description="MQTT password")
+    mqtt_topic: str = Field(default="inno/ai", description="MQTT topic to publish state strings to")
+    mqtt_tls_enabled: bool = Field(default=True, description="Use TLS for MQTT connection")
+    mqtt_qos: int = Field(default=1, ge=0, le=2, description="MQTT QoS level (0/1/2)")
+    mqtt_retain: bool = Field(default=True, description="Retain last MQTT message on broker")
+
     # Language detection
     default_language: str = Field(default="en", description="Fallback language code")
     lang_confidence_threshold: float = Field(default=0.80, ge=0.0, le=1.0, description="Provider language threshold")

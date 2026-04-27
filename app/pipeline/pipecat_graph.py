@@ -40,6 +40,7 @@ from app.stt.deepgram_client import DeepgramStreamingClient
 from app.stt.dual_stt_client import DualSTTClient
 from app.tts.edge_tts_client import EdgeTTSClient
 from app.tts.playback import PlaybackManager
+from app.ui.mqtt_publisher import MQTTPublisher
 from app.ui.status_publisher import StatusPublisher
 from app.utils.contracts import ResponsePacket, SessionState, TranscriptEvent
 from app.utils.logging import get_logger
@@ -491,6 +492,10 @@ class NavigatorPipecatRuntime:
         self._mic_thread: Optional[threading.Thread] = None
         self._last_session_id: Optional[str] = None
         self._session_end_lock = threading.Lock()
+        # Guard: track which session_id already received the wake acknowledgment.
+        # Each new session has a fresh UUID, so the comparison naturally prevents
+        # replaying the ack within the same session or during keepalive transitions.
+        self._wake_ack_session_id: Optional[str] = None
 
         self._tracer = NavigatorRuntimeTracer()
         self._observer = GraphTraceObserver()
@@ -501,6 +506,17 @@ class NavigatorPipecatRuntime:
             ws_enabled=cfg.status_ws_enabled,
             ws_host=cfg.status_ws_host,
             ws_port=cfg.status_ws_port,
+        )
+        self._mqtt = MQTTPublisher(
+            enabled=cfg.mqtt_enabled,
+            broker=cfg.mqtt_broker,
+            port=cfg.mqtt_port,
+            username=cfg.mqtt_username,
+            password=cfg.mqtt_password,
+            topic=cfg.mqtt_topic,
+            tls_enabled=cfg.mqtt_tls_enabled,
+            qos=cfg.mqtt_qos,
+            retain=cfg.mqtt_retain,
         )
 
         fallback_groq = _FallbackGroqClient()
@@ -608,6 +624,7 @@ class NavigatorPipecatRuntime:
 
         self._running = True
         self._status_publisher.start()
+        self._mqtt.start()
         self._status_publisher.publish(
             event="idle",
             state="idle",
@@ -616,6 +633,7 @@ class NavigatorPipecatRuntime:
             is_speaking=False,
             wake_word_detected=False,
         )
+        self._mqtt.publish_state("idle")
 
         if self._auto_start_audio:
             self._mic.start()
@@ -671,6 +689,7 @@ class NavigatorPipecatRuntime:
 
         self._deepgram_adapter.disconnect()
         self._status_publisher.stop()
+        self._mqtt.stop()
         logger.info("navigator_runtime_stopped")
 
     async def wait_for_state(self, state: SessionState, timeout: float = 5.0) -> bool:
@@ -769,9 +788,13 @@ class NavigatorPipecatRuntime:
             is_speaking=False,
             wake_word_detected=True,
         )
+        self._mqtt.publish_state("listening")
 
-        # Play wake acknowledgment in the event loop (real mode only)
-        if self._loop and not self._mock:
+        # Play wake acknowledgment once per unique session (real mode only).
+        # Comparing session_id (a new UUID per wake) ensures the ack never
+        # replays when returning from SPEAKING→LISTENING inside the same session.
+        if self._loop and not self._mock and session_id != self._wake_ack_session_id:
+            self._wake_ack_session_id = session_id
             asyncio.run_coroutine_threadsafe(self._play_wake_ack_async(), self._loop)
 
     def _on_speech_start(self) -> None:
@@ -843,6 +866,7 @@ class NavigatorPipecatRuntime:
             is_speaking=False,
             wake_word_detected=True,
         )
+        self._mqtt.publish_state("processing")
 
     def _on_playback_started(self, session_id: Optional[str]) -> None:
         if session_id is None:
@@ -857,6 +881,7 @@ class NavigatorPipecatRuntime:
             is_speaking=True,
             wake_word_detected=True,
         )
+        self._mqtt.publish_state("speaking")
 
     def _on_empty_audio(self, session_id: Optional[str]) -> None:
         if session_id is None:
@@ -881,6 +906,7 @@ class NavigatorPipecatRuntime:
             is_speaking=False,
             wake_word_detected=True,
         )
+        self._mqtt.publish_state("listening")
 
     def _on_playback_complete(self) -> None:
         """TTS finished naturally — keep the session alive and return to LISTENING."""
@@ -899,6 +925,7 @@ class NavigatorPipecatRuntime:
             is_speaking=False,
             wake_word_detected=True,
         )
+        self._mqtt.publish_state("listening")
 
     def _on_session_reset(self) -> None:
         """
@@ -950,6 +977,7 @@ class NavigatorPipecatRuntime:
                 is_speaking=False,
                 wake_word_detected=False,
             )
+            self._mqtt.publish_state("idle")
 
     async def _play_wake_ack_async(self) -> None:
         """Synthesize and play the wake acknowledgment phrase (real mode only)."""
