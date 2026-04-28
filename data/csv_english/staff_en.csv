@@ -1,65 +1,69 @@
 staff_id,staff_name,staff_role,department_id,office_room_id,availability_status
-1,Dr. Mohamed Talaat,Dean,-,C115,Available
-2,Dr. Rania Swaif,Proffessor,-,C102,Available
-3,Dr. Islam Mohamed,Proffesor,SET,C112,Available
-4,Dr. Myar Ali,Proffessor,SET,C112,Available
-5,Dr. Cherry Aly,Proffessor,SET,C112,Unavailable
-6,Dr. Fatima Sakr,Proffessor,SET,C113,Available
-7,Dr. Amr Ibrahim,Proffessor,SET,C113,Unavailable
-8,Dr. Doaa Mabrouk,Proffessor,SET,C112,Available
-9,Dr. Ibrahim Diaaeldin,Proffessor,CBE,C205,Unavailable
-10,Dr Ola Mayhoub,Proffessor,CBE,C110,Available
-11,Dr Abanoub Shenouda,Proffessor,CBE,C110,Available
-12,Dr Ahmed Abd-Elkhaled,Proffessor,CBE,C110,Available
-13,Dr. Ashraf Mohamed,Proffessor,CBE,C109,Available
-14,Dr. Mohamed Salah,Proffessor,SET,C205,Unavailable
-15,Dr. Hussein Elsayed,Proffessor,CBE,C205,Unavailable
-16,Dr. Emad Abd-Elhafiez,Proffessor,CBE,C205,Available
-17,Dr. Milad Samir,Proffessor,ERG,C106,Available
-18,Dr. Ehab Nossier,Proffessor,CBE,C110,Available
-19,Dr. Sara El-Shatalawy,Proffessor,ERG,C106,Unavailable
-20,Dr. Hussein Waly,Proffessor,ERG,C106,Unavailable
-21,Dr. Shady Abd-Elnasser,Proffessor,CBE,C109,Unavailable
-22,Dr. Kadry Ali Ezzat,Proffessor,SET,C112,Unavailable
-23,Dr. Reham Abobeah,Proffessor,SET,C210,Unavailable
-24,Dr. Mohamed Youssef,Proffessor,ERG,C106,Unavailable
-25,Dr. Ahmed Osman,Proffessor,SET,C112,Available
-26,Dr. Mohamed Elsayed Mostafa,Proffessor,ERG,C106,Available
-27,Dr. Soliman Mabrouk,Proffessor,SET,C113,Unavailable
-28,Dr Mohamed Nabil,Proffessor,MCT,C205,Available
-29,Dr Mohamed Ismail,Proffessor,MCT,C102,Available
-30,Dr. Youssef Attay,Proffessor,MCT,C202,Available
-31,Dr. Sabah Saad,Proffessor,SET,c112,Unavailable
-32,Mohamed Hany,TA,SET,C111,available
-33,Norhan Mamdoh,TA,SET,C111,available
-34,Abdulrahman Gaber,TA,SET,C112,available
-35,Maiada Alaa Eldin Ali,TA,SET,C111,Available
-36,Ahmed Samir,TA,SET,C111,Unavailable
-37,Doaa Amin,TA,SET,C111,Available
-38,Hagar Rabea,TA,SET,C111,Unavailable
-39,Mohamed Khatab,TA,SET,C112,Unavailable
-40,Hussain Mohamed,TA,SET,C112,Unavailable
-41,Asmaa Elboghdady,TA,SET,C111,Available
-42,Yara Afifi,TA,SET,C111,Available
-43,Fady Romany,TA,SET,C112,Available
-44,Tahia Ahmed,TA,SET,C111,Available
-45,Yasmeen Magdy,TA,CBE,C109,Available
-46,Nada Oda,TA,CBE,C109,Available
-47,Rawan Sultan,TA,CBE,C109,Available
-48,Menna Salah,TA,CBE,C109,Available
-49,Youmna Basset,TA,CBE,C109,Available
-50,Peter Talat,TA,CBE,C109,Available
-51,Ahmed Tamer,TA,CBE,C109,Available
-52,Kerolos Samy,TA,MCT,C203,Available
-53,Hager Mohamed Hosnii,TA,MCT,C204,Available
-54,Noah Khalaf,TA,MCT,C205,Available
-55,Nada Omar,TA,MCT,C206,Available
-56,Bishoy Samuel,TA,MCT,C207,Available
-57,Mohamed Maged,TA,MCT,C208,Available
-58,Gannah Ghamery,TA,MCT,C209,Available
-59,Nada Ayman Farouk,TA,MCT,C210,Available
-60,Veronia Medhat,TA,MCT,C211,Available
-61,Tasneem Ahmed Hassan,TA,MCT,C212,Available
-62,Ziad HossamAldin AbdAlsamie,TA,MCT,C213,Available
-63,Dina Zaki,TA,MCT,C214,Available
-64,Omar Ashraf,TA,MCT,C215,Available
+1,Dr. Mohamed Talaat,Dean,-,C one hundred fifteen,Available
+2,Dr. Rania Swaif,Proffessor,-,C one hundred two,Available
+3,Dr. Islam Mohamed,Proffesor,SET,C one hundred twelve,Available
+4,Dr. Myar Ali,Proffessor,SET,C one hundred twelve,Available
+5,Dr. Cherry Aly,Proffessor,SET,C one hundred twelve,Unavailable
+6,Dr. Fatima Sakr,Proffessor,SET,C one hundred thirteen,Available
+7,Dr. Amr Ibrahim,Proffessor,SET,C one hundred thirteen,Unavailable
+8,Dr. Doaa Mabrouk,Proffessor,SET,C one hundred twelve,Available
+9,Dr. Ibrahim Diaaeldin,Proffessor,CBE,C two hundred five,Unavailable
+10,Dr Ola Mayhoub,Proffessor,CBE,C one hundred ten,Available
+11,Dr Abanoub Shenouda,Proffessor,CBE,C one hundred ten,Available
+12,Dr Ahmed Abd-Elkhaled,Proffessor,CBE,C one hundred ten,Available
+13,Dr. Ashraf Mohamed,Proffessor,CBE,C one hundred nine,Available
+14,Dr. Mohamed Salah,Proffessor,SET,C two hundred five,Unavailable
+15,Dr. Hussein Elsayed,Proffessor,CBE,C two hundred five,Unavailable
+16,Dr. Emad Abd-Elhafiez,Proffessor,CBE,C two hundred five,Available
+17,Dr. Milad Samir,Proffessor,ERG,C one hundred six,Available
+18,Dr. Ehab Nossier,Proffessor,CBE,C one hundred ten,Available
+19,Dr. Sara El-Shatalawy,Proffessor,ERG,C one hundred six,Unavailable
+20,Dr. Hussein Waly,Proffessor,ERG,C one hundred six,Unavailable
+21,Dr. Shady Abd-Elnasser,Proffessor,CBE,C one hundred nine,Unavailable
+22,Dr. Kadry Ali Ezzat,Proffessor,SET,C one hundred twelve,Unavailable
+23,Dr. Reham Abobeah,Proffessor,SET,C two hundred ten,Unavailable
+24,Dr. Mohamed Youssef,Proffessor,ERG,C one hundred six,Unavailable
+25,Dr. Ahmed Osman,Proffessor,SET,C one hundred twelve,Available
+26,Dr. Mohamed Elsayed Mostafa,Proffessor,ERG,C one hundred six,Available
+27,Dr. Soliman Mabrouk,Proffessor,SET,C one hundred thirteen,Unavailable
+28,Dr Mohamed Nabil,Proffessor,MCT,C two hundred five,Available
+29,Dr Mohamed Ismail,Proffessor,MCT,C one hundred two,Available
+30,Dr. Youssef Attay,Proffessor,MCT,C two hundred two,Available
+31,Dr. Sabah Saad,Proffessor,SET,c one hundred twelve,Unavailable
+32,Mohamed Hany,TA,SET,C one hundred eleven,available
+33,Norhan Mamdoh,TA,SET,C one hundred eleven,available
+34,Abdulrahman Gaber,TA,SET,C one hundred twelve,available
+35,Maiada Alaa Eldin Ali,TA,SET,C one hundred eleven,Available
+36,Ahmed Samir,TA,SET,C one hundred eleven,Unavailable
+37,Doaa Amin,TA,SET,C one hundred eleven,Available
+38,Hagar Rabea,TA,SET,C one hundred eleven,Unavailable
+39,Mohamed Khatab,TA,SET,C one hundred twelve,Unavailable
+40,Hussain Mohamed,TA,SET,C one hundred twelve,Unavailable
+41,Asmaa Elboghdady,TA,SET,C one hundred eleven,Available
+42,Yara Afifi,TA,SET,C one hundred eleven,Available
+43,Fady Romany,TA,SET,C one hundred twelve,Available
+44,Tahia Ahmed,TA,SET,C one hundred eleven,Available
+45,Yasmeen Magdy,TA,CBE,C one hundred nine,Available
+46,Nada Oda,TA,CBE,C one hundred nine,Available
+47,Rawan Sultan,TA,CBE,C one hundred nine,Available
+48,Menna Salah,TA,CBE,C one hundred nine,Available
+49,Youmna Basset,TA,CBE,C one hundred nine,Available
+50,Peter Talat,TA,CBE,C one hundred nine,Available
+51,Ahmed Tamer,TA,CBE,C one hundred nine,Available
+52,Kerolos Samy,TA,MCT,C two hundred three,Available
+53,Hager Mohamed Hosnii,TA,MCT,C two hundred four,Available
+54,Noah Khalaf,TA,MCT,C two hundred five,Available
+55,Nada Omar,TA,MCT,C two hundred six,Available
+56,Bishoy Samuel,TA,MCT,C two hundred seven,Available
+57,Mohamed Maged,TA,MCT,C two hundred eight,Available
+58,Gannah Ghamery,TA,MCT,C two hundred nine,Available
+59,Nada Ayman Farouk,TA,MCT,C two hundred ten,Available
+60,Veronia Medhat,TA,MCT,C two hundred eleven,Available
+61,Tasneem Ahmed Hassan,TA,MCT,C two hundred twelve,Available
+62,Ziad HossamAldin AbdAlsamie,TA,MCT,C two hundred thirteen,Available
+63,Dina Zaki,TA,MCT,C two hundred fourteen,Available
+64,Omar Ashraf,TA,MCT,C two hundred fifteen,Available
+65,Mohamed nabil ,Proffessor,MCT ,C two hundred fourteen,Available
+66,Mohamed Ismail ,Head of MCT Department,,C one hundred fourteen ,Available
+67,Amr ibrahem ,Vice Dean of the College of Environment and Society,,, c one hundred four 
+68,Karima Abdel Karim,President of the Council of Trustees,,,

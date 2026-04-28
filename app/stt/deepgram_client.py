@@ -66,7 +66,7 @@ _KEYTERM_BLACKLIST: frozenset[str] = frozenset({
     "centre",
 })
 _KEYTERM_MIN_LEN = 3
-_KEYTERM_MAX_TOTAL = 100
+_KEYTERM_MAX_TOTAL = 80
 _ARABIC_SCRIPT = re.compile(r"[\u0600-\u06FF]")
 _ECU_STATIC_KEYTERMS: list[str] = [
     "ECU",

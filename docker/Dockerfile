@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir torch torchaudio \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
+RUN python -c "import openwakeword.utils; openwakeword.utils.download_models()"
 
 # Copy application code and seed data
 COPY app/       ./app/
