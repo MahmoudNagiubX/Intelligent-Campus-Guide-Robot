@@ -1,6 +1,6 @@
 <div align="center">
 
-# INNO — Intelligent Campus Guide Robot
+# 🤖 INNO — Intelligent Campus Guide Robot
 
 ### A bilingual, voice-first campus assistant that connects grounded AI answers with real robot navigation
 
@@ -19,7 +19,7 @@
 
 ---
 
-## Project Overview
+## 🎯 Project Overview
 
 **INNO** is a real-world campus guide robot developed for the Egyptian Chinese University (ECU). It is designed to help students, visitors, and staff find campus locations and information through natural voice interaction.
 
@@ -27,7 +27,7 @@ The repository contains the robot's **AI, voice, retrieval, conversation, and na
 
 Unlike a general chatbot, INNO is intentionally **domain-scoped and evidence-driven**. Campus answers are resolved from structured ECU data before the language model is allowed to enhance the response.
 
-## Real-World Prototype
+## 📸 Real-World Prototype
 
 <p align="center">
   <img src="./docs/assets/Screenshot_20260504_171651_LinkedIn.jpg" alt="INNO intelligent campus guide robot project overview" width="900" />
@@ -48,7 +48,7 @@ Unlike a general chatbot, INNO is intentionally **domain-scoped and evidence-dri
   </tr>
 </table>
 
-## What INNO Can Do
+## ✨ What INNO Can Do
 
 - Wake locally when a user says **“Hey INNO.”**
 - Detect speech boundaries using voice activity detection.
@@ -62,7 +62,7 @@ Unlike a general chatbot, INNO is intentionally **domain-scoped and evidence-dri
 - Publish live robot states to screen clients through JSON, WebSocket, or MQTT.
 - Preserve multi-turn sessions, support interruptions, and recover from runtime failures.
 
-## System Architecture
+## 🏗️ System Architecture
 
 ```mermaid
 flowchart LR
@@ -85,7 +85,7 @@ flowchart LR
     O --> P[JSON / WebSocket / MQTT Status]
 ```
 
-### End-to-End Flow
+### 🔄 End-to-End Flow
 
 ```text
 Wake word
@@ -105,9 +105,9 @@ Grounded response generation
 Voice playback and optional navigation command
 ```
 
-## Engineering Highlights
+## ⚙️ Engineering Highlights
 
-### Voice and Conversation Pipeline
+### 🎙️ Voice and Conversation Pipeline
 
 The live runtime is orchestrated through **Pipecat** and custom processors that connect microphone audio, VAD, streaming STT, conversation control, navigation, TTS, playback, and runtime tracing.
 
@@ -121,7 +121,7 @@ Important runtime behavior includes:
 - Automatic runtime restart after unexpected failures.
 - Stage-level latency tracing for routing, retrieval, TTS, and complete turns.
 
-### Grounded Campus Intelligence
+### 📚 Grounded Campus Intelligence
 
 Campus data is maintained as editable English and Arabic CSV files, synchronized into **SQLite**, and indexed with **FTS5** for fast full-text lookup.
 
@@ -134,7 +134,7 @@ The retrieval path prioritizes:
 
 This architecture keeps factual campus answers tied to maintainable data rather than relying entirely on model memory.
 
-### Bilingual Experience
+### 🌐 Bilingual Experience
 
 The voice layer supports two operating modes:
 
@@ -143,13 +143,13 @@ The voice layer supports two operating modes:
 
 Arabic transcript normalization and dedicated Arabic retrieval logic improve handling of Egyptian Arabic campus requests, room references, and phonetic variations.
 
-### Navigation Safety Boundary
+### 🧭 Navigation Safety Boundary
 
 The AI layer never sends arbitrary free-form movement instructions directly to the robot.
 
 Navigation requests must resolve to a known `nav_code`. The navigation bridge validates the target, handles busy/rejected/timeout states, and returns localized feedback when navigation cannot start safely.
 
-### Operational Reliability
+### 🛡️ Operational Reliability
 
 The project includes deployment-oriented safeguards:
 
@@ -163,7 +163,7 @@ The project includes deployment-oriented safeguards:
 - Docker and Raspberry Pi 5 deployment support.
 - Unit, integration, end-to-end, and hardware-marked tests.
 
-## Technology Stack
+## 🧰 Technology Stack
 
 | Layer | Technology |
 |---|---|
@@ -183,7 +183,7 @@ The project includes deployment-oriented safeguards:
 | **Testing** | pytest and pytest-asyncio |
 | **Deployment** | Raspberry Pi OS, Docker, optional systemd service |
 
-## Repository Structure
+## 📁 Repository Structure
 
 ```text
 Intelligent-Campus-Guide-Robot/
@@ -214,9 +214,9 @@ Intelligent-Campus-Guide-Robot/
 └── requirements.txt
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
-### Requirements
+### ✅ Requirements
 
 - Python 3.11 or 3.12
 - A microphone and speaker
@@ -224,7 +224,7 @@ Intelligent-Campus-Guide-Robot/
 - Deepgram and Groq API keys
 - ElevenLabs key only when bilingual Arabic STT is enabled
 
-### Installation
+### 📦 Installation
 
 ```bash
 git clone https://github.com/MahmoudNagiubX/Intelligent-Campus-Guide-Robot.git
@@ -280,16 +280,16 @@ Try:
 Hey INNO, where is the robotics lab?
 ```
 
-## Configuration Modes
+## 🔧 Configuration Modes
 
-### Enable Arabic
+### 🗣️ Enable Arabic
 
 ```env
 ENGLISH_ONLY_MODE=false
 ELEVENLABS_API_KEY=your_elevenlabs_key_here
 ```
 
-### Enable MQTT Robot-State Publishing
+### 📡 Enable MQTT Robot-State Publishing
 
 ```env
 MQTT_ENABLED=true
@@ -306,7 +306,7 @@ listen → listening or processing
 speak  → voice playback
 ```
 
-## Testing
+## 🧪 Testing
 
 The suite separates deterministic software tests from tests that require real hardware or live credentials.
 
@@ -329,7 +329,7 @@ python -m scripts.health_check
 
 Hardware-dependent scenarios are marked separately in `pytest.ini`.
 
-## Deployment
+## 🖥️ Deployment
 
 The primary target is a **Raspberry Pi 5 running Raspberry Pi OS 64-bit**.
 
@@ -344,7 +344,7 @@ Deployment support includes:
 
 See the complete guide: [`docs/raspberry_pi_setup.md`](./docs/raspberry_pi_setup.md)
 
-## Design Boundaries
+## ⚠️ Design Boundaries
 
 - INNO is a campus-focused assistant, not a general-purpose chatbot.
 - Cloud STT, routing, and TTS services require a stable network connection.
@@ -352,15 +352,15 @@ See the complete guide: [`docs/raspberry_pi_setup.md`](./docs/raspberry_pi_setup
 - Audio-device indexes and echo behavior must be tuned for the deployed microphone and speaker setup.
 - Campus accuracy depends on keeping the CSV knowledge sources current.
 
-## Recognition
+## 🏆 Recognition
 
 The broader **INNOVATRONICS** robot platform received **1st Place Overall at the Made in ECU Competition**. The project brought together AI, software, embedded systems, navigation, electronics, mechanical design, UI/UX, and communication into one working campus-assistance platform.
 
-## Developer and Project Context
+## 👨‍💻 Developer and Project Context
 
 This is a team robotics project developed as part of **INNOVATRONICS at the Egyptian Chinese University**.
 
-### My Focus — Mahmoud Nagiub
+### 🎯 My Focus — Mahmoud Nagiub
 
 My primary contribution was the **AI and voice system** represented in this repository, including the streaming conversation pipeline, grounded campus retrieval, bilingual handling, response orchestration, runtime reliability, robot-state integration, and Raspberry Pi deployment work.
 
@@ -369,7 +369,7 @@ This project reflects the kind of engineering I want to continue building: AI sy
 - GitHub: [@MahmoudNagiubX](https://github.com/MahmoudNagiubX)
 - LinkedIn: [Mahmoud Nagiub](https://www.linkedin.com/in/mahmoudnagiubb/)
 
-## Future Improvements
+## 🔮 Future Improvements
 
 - Add an offline fallback path for selected campus queries.
 - Expand automated latency and audio-quality evaluation.
