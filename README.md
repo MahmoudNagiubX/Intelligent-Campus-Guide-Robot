@@ -29,13 +29,17 @@ Unlike a general chatbot, INNO is intentionally **domain-scoped and evidence-dri
 
 ## Real-World Prototype
 
+<p align="center">
+  <img src="./docs/assets/Screenshot_20260504_171651_LinkedIn.jpg" alt="INNO intelligent campus guide robot project overview" width="900" />
+</p>
+
 <table>
   <tr>
     <td width="50%">
-      <img src="./docs/assets/inno-campus-demo.jpg" alt="INNO campus guide robot displayed at ECU" />
+      <img src="./docs/assets/20260428_120741.jpg" alt="INNO campus guide robot displayed at ECU" />
     </td>
     <td width="50%">
-      <img src="./docs/assets/inno-development.jpg" alt="Developing the INNO AI and voice system beside the robot" />
+      <img src="./docs/assets/20260428_114840.jpg" alt="Developing the INNO AI and voice system beside the robot" />
     </td>
   </tr>
   <tr>
