@@ -369,14 +369,6 @@ This project reflects the kind of engineering I want to continue building: AI sy
 - GitHub: [@MahmoudNagiubX](https://github.com/MahmoudNagiubX)
 - LinkedIn: [Mahmoud Nagiub](https://www.linkedin.com/in/mahmoudnagiubb/)
 
-## 🔮 Future Improvements
-
-- Add an offline fallback path for selected campus queries.
-- Expand automated latency and audio-quality evaluation.
-- Add a visual operations dashboard for sessions and robot state.
-- Introduce CI validation for deterministic tests and documentation checks.
-- Version campus datasets and expose data freshness metadata.
-
 ---
 
 <div align="center">
